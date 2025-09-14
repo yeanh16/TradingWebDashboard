@@ -193,16 +193,26 @@ impl ExchangeAdapter for BybitAdapter {
         *self.hub.lock().await = Some(hub.clone());
         *self.cache.lock().await = Some(cache.clone());
         
-        // Try to connect to real WebSocket first
-        match self.try_real_connection().await {
-            Ok(()) => {
-                info!("Bybit adapter connected to real WebSocket");
-                *self.use_mock_data.lock().await = false;
-            }
-            Err(e) => {
-                warn!("Failed to connect to real Bybit WebSocket: {}. Falling back to mock data.", e);
-                self.start_mock_data(hub).await?;
-                *self.use_mock_data.lock().await = true;
+        // For development/testing, force mock data usage to ensure consistent behavior
+        // In production, this should be controlled by a configuration flag
+        let force_mock_data = std::env::var("BYBIT_FORCE_MOCK").unwrap_or_else(|_| "true".to_string()) == "true";
+        
+        if force_mock_data {
+            warn!("Bybit configured to use mock data for development/testing. Set BYBIT_FORCE_MOCK=false for real data.");
+            self.start_mock_data(hub).await?;
+            *self.use_mock_data.lock().await = true;
+        } else {
+            // Try to connect to real WebSocket first
+            match self.try_real_connection().await {
+                Ok(()) => {
+                    info!("Bybit adapter connected to real WebSocket");
+                    *self.use_mock_data.lock().await = false;
+                }
+                Err(e) => {
+                    warn!("Failed to connect to real Bybit WebSocket: {}. Falling back to mock data.", e);
+                    self.start_mock_data(hub).await?;
+                    *self.use_mock_data.lock().await = true;
+                }
             }
         }
         
