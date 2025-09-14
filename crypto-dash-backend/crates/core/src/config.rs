@@ -31,6 +31,7 @@ impl Config {
                 .parse()
                 .unwrap_or(50),
             log_level: env::var("RUST_LOG").unwrap_or_else(|_| "info".to_string()),
+            enable_real_connections: true,
         })
     }
 }

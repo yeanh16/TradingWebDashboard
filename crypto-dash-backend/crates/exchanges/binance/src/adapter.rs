@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
-const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/ws";
+const BINANCE_WS_URL: &str = "wss://ws-api.binance.com:443/ws-api/v3";
 
 #[derive(Clone)]
 pub struct BinanceAdapter {
