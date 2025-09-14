@@ -1,0 +1,18 @@
+[package]
+name = "crypto-dash-binance"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crypto-dash-core = { path = "../../core" }
+crypto-dash-stream-hub = { path = "../../stream-hub" }
+crypto-dash-cache = { path = "../../cache" }
+crypto-dash-exchanges-common = { path = "../common" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+rust_decimal = { workspace = true }
+tokio-tungstenite = { workspace = true }
