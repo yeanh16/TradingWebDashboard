@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown } from 'lucide-react'
+import { useState, useEffect, useMemo } from 'react'
+import { TrendingUp, TrendingDown, Wifi, WifiOff } from 'lucide-react'
+import { Ticker } from '@/lib/types'
 
 interface TickerData {
   symbol: string
@@ -12,13 +13,16 @@ interface TickerData {
   change24h: number
   volume24h: number
   spread: number
+  lastUpdate?: Date
 }
 
 interface TickerTableProps {
   selectedExchanges: string[]
+  tickers: Record<string, Ticker>
+  wsConnected: boolean
 }
 
-// Mock data for demonstration
+// Mock data for demonstration when no live data is available
 const MOCK_TICKERS: TickerData[] = [
   {
     symbol: 'BTC-USDT',
@@ -40,49 +44,70 @@ const MOCK_TICKERS: TickerData[] = [
     volume24h: 85670000,
     spread: 0.026,
   },
-  {
-    symbol: 'ADA-USDT',
-    exchange: 'binance', 
-    bid: 0.3845,
-    ask: 0.3847,
-    last: 0.3846,
-    change24h: 5.67,
-    volume24h: 45230000,
-    spread: 0.052,
-  },
-  {
-    symbol: 'BTC-USDT',
-    exchange: 'bybit',
-    bid: 43249.75,
-    ask: 43252.25,
-    last: 43250.50,
-    change24h: 2.41,
-    volume24h: 98760000,
-    spread: 0.006,
-  },
 ]
 
-export function TickerTable({ selectedExchanges }: TickerTableProps) {
-  const [tickers, setTickers] = useState<TickerData[]>([])
+export function TickerTable({ selectedExchanges, tickers, wsConnected }: TickerTableProps) {
   const [loading, setLoading] = useState(true)
+  const [priceChanges, setPriceChanges] = useState<Record<string, 'up' | 'down' | null>>({})
+
+  // Convert live ticker data to display format
+  const displayTickers = useMemo(() => {
+    const result: TickerData[] = []
+    
+    Object.entries(tickers).forEach(([key, ticker]) => {
+      if (selectedExchanges.includes(ticker.exchange)) {
+        const spread = ticker.ask > 0 && ticker.bid > 0 
+          ? (ticker.ask - ticker.bid) / ticker.ask * 100 
+          : 0
+          
+        result.push({
+          symbol: `${ticker.symbol.base}-${ticker.symbol.quote}`,
+          exchange: ticker.exchange,
+          bid: ticker.bid,
+          ask: ticker.ask,
+          last: ticker.last,
+          change24h: 0, // We don't have 24h change in the current data structure
+          volume24h: 0, // We don't have volume in the current data structure
+          spread,
+          lastUpdate: new Date(ticker.timestamp),
+        })
+      }
+    })
+    
+    // If no live data and not connected, show mock data
+    if (result.length === 0 && !wsConnected) {
+      return MOCK_TICKERS.filter(ticker => selectedExchanges.includes(ticker.exchange))
+    }
+    
+    return result
+  }, [tickers, selectedExchanges, wsConnected])
+
+  // Track price changes for visual feedback
+  useEffect(() => {
+    const newChanges: Record<string, 'up' | 'down' | null> = {}
+    
+    Object.entries(tickers).forEach(([key, ticker]) => {
+      const currentPrice = ticker.last
+      // In a real app, you'd compare with previous price
+      // For now, we'll randomly simulate price movements for demo
+      newChanges[key] = Math.random() > 0.5 ? 'up' : 'down'
+    })
+    
+    setPriceChanges(newChanges)
+    
+    // Clear price change indicators after 2 seconds
+    const timeout = setTimeout(() => {
+      setPriceChanges({})
+    }, 2000)
+    
+    return () => clearTimeout(timeout)
+  }, [tickers])
 
   useEffect(() => {
-    // Simulate loading ticker data
-    const loadTickers = async () => {
-      setLoading(true)
-      await new Promise(resolve => setTimeout(resolve, 300))
-      
-      // Filter tickers based on selected exchanges
-      const filteredTickers = MOCK_TICKERS.filter(ticker =>
-        selectedExchanges.includes(ticker.exchange)
-      )
-      
-      setTickers(filteredTickers)
-      setLoading(false)
-    }
-
-    loadTickers()
-  }, [selectedExchanges])
+    // Simulate initial loading
+    const timer = setTimeout(() => setLoading(false), 300)
+    return () => clearTimeout(timer)
+  }, [])
 
   const formatPrice = (price: number, decimals = 2) => {
     return price.toLocaleString('en-US', {
@@ -101,6 +126,13 @@ export function TickerTable({ selectedExchanges }: TickerTableProps) {
     return volume.toString()
   }
 
+  const getPriceClassName = (tickerKey: string) => {
+    const change = priceChanges[tickerKey]
+    if (change === 'up') return 'bg-green-100 dark:bg-green-900/30'
+    if (change === 'down') return 'bg-red-100 dark:bg-red-900/30'
+    return ''
+  }
+
   if (loading) {
     return (
       <div className="rounded-lg border bg-card p-6">
@@ -114,79 +146,85 @@ export function TickerTable({ selectedExchanges }: TickerTableProps) {
     )
   }
 
-  if (tickers.length === 0) {
-    return (
-      <div className="rounded-lg border bg-card p-6">
-        <div className="text-center text-muted-foreground">
-          No tickers available for selected exchanges
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="rounded-lg border bg-card">
       <div className="p-6">
-        <h3 className="text-lg font-semibold mb-4">Live Market Data</h3>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="text-left py-2 text-sm font-medium text-muted-foreground">Symbol</th>
-                <th className="text-left py-2 text-sm font-medium text-muted-foreground">Exchange</th>
-                <th className="text-right py-2 text-sm font-medium text-muted-foreground">Last Price</th>
-                <th className="text-right py-2 text-sm font-medium text-muted-foreground">24h Change</th>
-                <th className="text-right py-2 text-sm font-medium text-muted-foreground">Bid</th>
-                <th className="text-right py-2 text-sm font-medium text-muted-foreground">Ask</th>
-                <th className="text-right py-2 text-sm font-medium text-muted-foreground">Spread</th>
-                <th className="text-right py-2 text-sm font-medium text-muted-foreground">Volume (24h)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {tickers.map((ticker, index) => (
-                <tr key={`${ticker.exchange}-${ticker.symbol}`} className="border-b border-border hover:bg-accent/50 transition-colors">
-                  <td className="py-3">
-                    <div className="font-medium">{ticker.symbol}</div>
-                  </td>
-                  <td className="py-3">
-                    <div className="text-sm text-muted-foreground capitalize">
-                      {ticker.exchange}
-                    </div>
-                  </td>
-                  <td className="py-3 text-right font-mono">
-                    ${formatPrice(ticker.last)}
-                  </td>
-                  <td className="py-3 text-right">
-                    <div className={`flex items-center justify-end space-x-1 ${
-                      ticker.change24h >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {ticker.change24h >= 0 ? (
-                        <TrendingUp className="w-4 h-4" />
-                      ) : (
-                        <TrendingDown className="w-4 h-4" />
-                      )}
-                      <span className="font-mono">
-                        {ticker.change24h >= 0 ? '+' : ''}{ticker.change24h.toFixed(2)}%
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-3 text-right font-mono text-green-600">
-                    ${formatPrice(ticker.bid)}
-                  </td>
-                  <td className="py-3 text-right font-mono text-red-600">
-                    ${formatPrice(ticker.ask)}
-                  </td>
-                  <td className="py-3 text-right font-mono text-sm text-muted-foreground">
-                    {ticker.spread.toFixed(3)}%
-                  </td>
-                  <td className="py-3 text-right font-mono text-sm">
-                    ${formatVolume(ticker.volume24h)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Live Market Data</h3>
+          <div className="flex items-center space-x-2 text-sm">
+            {wsConnected ? (
+              <>
+                <Wifi className="w-4 h-4 text-green-600" />
+                <span className="text-green-600">Live</span>
+              </>
+            ) : (
+              <>
+                <WifiOff className="w-4 h-4 text-orange-600" />
+                <span className="text-orange-600">Demo Mode</span>
+              </>
+            )}
+          </div>
         </div>
+        
+        {displayTickers.length === 0 ? (
+          <div className="text-center text-muted-foreground py-8">
+            No tickers available for selected exchanges
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 text-sm font-medium text-muted-foreground">Symbol</th>
+                  <th className="text-left py-2 text-sm font-medium text-muted-foreground">Exchange</th>
+                  <th className="text-right py-2 text-sm font-medium text-muted-foreground">Last Price</th>
+                  <th className="text-right py-2 text-sm font-medium text-muted-foreground">Bid</th>
+                  <th className="text-right py-2 text-sm font-medium text-muted-foreground">Ask</th>
+                  <th className="text-right py-2 text-sm font-medium text-muted-foreground">Spread</th>
+                  <th className="text-right py-2 text-sm font-medium text-muted-foreground">Last Update</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayTickers.map((ticker) => {
+                  const tickerKey = `${ticker.exchange}_${ticker.symbol.replace('-', '')}`
+                  return (
+                    <tr 
+                      key={tickerKey} 
+                      className={`border-b border-border hover:bg-accent/50 transition-all duration-200 ${getPriceClassName(tickerKey)}`}
+                    >
+                      <td className="py-3">
+                        <div className="font-medium">{ticker.symbol}</div>
+                      </td>
+                      <td className="py-3">
+                        <div className="text-sm text-muted-foreground capitalize">
+                          {ticker.exchange}
+                        </div>
+                      </td>
+                      <td className="py-3 text-right font-mono">
+                        ${formatPrice(ticker.last)}
+                      </td>
+                      <td className="py-3 text-right font-mono text-green-600">
+                        ${formatPrice(ticker.bid)}
+                      </td>
+                      <td className="py-3 text-right font-mono text-red-600">
+                        ${formatPrice(ticker.ask)}
+                      </td>
+                      <td className="py-3 text-right font-mono text-sm text-muted-foreground">
+                        {ticker.spread.toFixed(3)}%
+                      </td>
+                      <td className="py-3 text-right text-xs text-muted-foreground">
+                        {ticker.lastUpdate 
+                          ? ticker.lastUpdate.toLocaleTimeString()
+                          : wsConnected ? 'Live' : 'Mock'
+                        }
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )
