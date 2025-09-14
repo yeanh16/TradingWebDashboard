@@ -31,14 +31,14 @@ interface TickerTableProps {
   wsConnected: boolean
 }
 
-// Mock data for demonstration when no live data is available
+// Mock data for demonstration when no live data is available - updated with current realistic prices
 const MOCK_TICKERS: TickerData[] = [
   {
     symbol: 'BTC-USDT',
     exchange: 'binance',
-    bid: 43250.50,
-    ask: 43251.75,
-    last: 43251.00,
+    bid: 110250.50,
+    ask: 110251.75,
+    last: 110251.00,
     change24h: 2.45,
     volume24h: 125430000,
     spread: 0.003,
@@ -46,9 +46,9 @@ const MOCK_TICKERS: TickerData[] = [
   {
     symbol: 'ETH-USDT', 
     exchange: 'binance',
-    bid: 2650.25,
-    ask: 2650.95,
-    last: 2650.60,
+    bid: 4150.25,
+    ask: 4150.95,
+    last: 4150.60,
     change24h: -1.23,
     volume24h: 85670000,
     spread: 0.026,

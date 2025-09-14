@@ -33,16 +33,17 @@ impl MockDataGenerator {
         ];
 
         let mut base_prices = std::collections::HashMap::new();
-        base_prices.insert("BTC".to_string(), Decimal::from_str("43250.50").unwrap());
-        base_prices.insert("ETH".to_string(), Decimal::from_str("2650.25").unwrap());
-        base_prices.insert("DOT".to_string(), Decimal::from_str("6.45").unwrap());
-        base_prices.insert("ADA".to_string(), Decimal::from_str("0.485").unwrap());
-        base_prices.insert("SOL".to_string(), Decimal::from_str("102.75").unwrap());
-        base_prices.insert("MATIC".to_string(), Decimal::from_str("0.825").unwrap());
-        base_prices.insert("AVAX".to_string(), Decimal::from_str("24.50").unwrap());
-        base_prices.insert("LINK".to_string(), Decimal::from_str("14.85").unwrap());
-        base_prices.insert("UNI".to_string(), Decimal::from_str("7.25").unwrap());
-        base_prices.insert("XRP".to_string(), Decimal::from_str("0.585").unwrap());
+        // Updated to current realistic market prices (Dec 2024)
+        base_prices.insert("BTC".to_string(), Decimal::from_str("110250.50").unwrap());
+        base_prices.insert("ETH".to_string(), Decimal::from_str("4150.25").unwrap());
+        base_prices.insert("DOT".to_string(), Decimal::from_str("8.45").unwrap());
+        base_prices.insert("ADA".to_string(), Decimal::from_str("1.185").unwrap());
+        base_prices.insert("SOL".to_string(), Decimal::from_str("242.75").unwrap());
+        base_prices.insert("MATIC".to_string(), Decimal::from_str("0.525").unwrap());
+        base_prices.insert("AVAX".to_string(), Decimal::from_str("52.50").unwrap());
+        base_prices.insert("LINK".to_string(), Decimal::from_str("28.85").unwrap());
+        base_prices.insert("UNI".to_string(), Decimal::from_str("15.25").unwrap());
+        base_prices.insert("XRP".to_string(), Decimal::from_str("2.385").unwrap());
 
         Self {
             exchange_id,
@@ -78,8 +79,8 @@ impl MockDataGenerator {
     }
 
     fn create_mock_ticker(&self, symbol: &Symbol, base_price: Decimal) -> Ticker {
-        // Generate realistic price variations (±2%)
-        let variation = (rand::random::<f64>() - 0.5) * 0.04; // -2% to +2%
+        // Generate realistic price variations (±1.5%) to simulate live market movement
+        let variation = (rand::random::<f64>() - 0.5) * 0.03; // -1.5% to +1.5%
         let price_factor = Decimal::from_str(&(1.0 + variation).to_string()).unwrap_or(Decimal::ONE);
         let current_price = base_price * price_factor;
         

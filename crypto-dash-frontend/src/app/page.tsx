@@ -29,11 +29,11 @@ const MOCK_EXCHANGES: Exchange[] = [
 ]
 
 export default function HomePage() {
-  const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['bybit'])
+  const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance', 'bybit'])
   const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>([
-    // Default tickers - prioritize exchanges with real-time data
-    { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'bybit', display_name: 'Bitcoin / USDT' },
-    { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'bybit', display_name: 'Ethereum / USDT' },
+    // Use both exchanges - Binance has working mock data with current prices, Bybit for real data when available
+    { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', display_name: 'Bitcoin / USDT' },
+    { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', display_name: 'Ethereum / USDT' },
   ])
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
@@ -84,7 +84,7 @@ export default function HomePage() {
         unsubscribe(channels)
       }
     }
-  }, [selectedExchanges, selectedTickers, wsState.connected, subscribe, unsubscribe])
+  }, [selectedExchanges, selectedTickers, wsState.connected])
 
   if (loading) {
     return (

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { apiClient } from '@/lib/api'
 import { StreamMessage, ClientMessage, Ticker, Channel } from '@/lib/types'
 
@@ -34,9 +34,9 @@ export function useWebSocket(): UseWebSocketReturn {
   
   const [tickers, setTickers] = useState<Record<string, Ticker>>({})
   
-  const clearError = () => {
+  const clearError = useCallback(() => {
     setState(prev => ({ ...prev, error: null }))
-  }
+  }, [])
   
   const sendMessage = (message: ClientMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -44,13 +44,13 @@ export function useWebSocket(): UseWebSocketReturn {
     }
   }
   
-  const subscribe = (channels: Channel[]) => {
+  const subscribe = useCallback((channels: Channel[]) => {
     sendMessage({ op: 'subscribe', channels })
-  }
+  }, [])
   
-  const unsubscribe = (channels: Channel[]) => {
+  const unsubscribe = useCallback((channels: Channel[]) => {
     sendMessage({ op: 'unsubscribe', channels })
-  }
+  }, [])
   
   const startPingInterval = () => {
     if (pingIntervalRef.current) {
