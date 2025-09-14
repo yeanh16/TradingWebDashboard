@@ -29,11 +29,11 @@ const MOCK_EXCHANGES: Exchange[] = [
 ]
 
 export default function HomePage() {
-  const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance'])
+  const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['bybit'])
   const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>([
-    // Default tickers
-    { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', display_name: 'Bitcoin / USDT' },
-    { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', display_name: 'Ethereum / USDT' },
+    // Default tickers - prioritize exchanges with real-time data
+    { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'bybit', display_name: 'Bitcoin / USDT' },
+    { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'bybit', display_name: 'Ethereum / USDT' },
   ])
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
