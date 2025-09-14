@@ -22,7 +22,7 @@ impl WsClient {
     }
 
     /// Connect to the WebSocket
-    pub async fn connect(&mut self) -> Result<()> {
+    pub async fn connect(mut self) -> Result<Self> {
         let url = Url::parse(&self.url)?;
         debug!("Connecting to WebSocket: {}", self.url);
         
@@ -30,7 +30,7 @@ impl WsClient {
         debug!("WebSocket connected, status: {}", response.status());
         
         self.stream = Some(stream);
-        Ok(())
+        Ok(self)
     }
 
     /// Send a message

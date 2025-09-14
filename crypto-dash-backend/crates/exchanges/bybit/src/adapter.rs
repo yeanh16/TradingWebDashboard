@@ -156,8 +156,7 @@ impl BybitAdapter {
 
     async fn try_real_connection(&self) -> Result<()> {
         // Initialize WebSocket client
-        let mut ws_client = WsClient::new(BYBIT_WS_URL);
-        ws_client.connect().await?;
+        let ws_client = WsClient::new(BYBIT_WS_URL).connect().await?;
         *self.ws_client.lock().await = Some(ws_client);
         
         // Start listening for messages in a background task

@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
+use tokio::time::{sleep, Duration};
 
 const BINANCE_WS_URL: &str = "wss://stream.binance.com/ws/";
 
@@ -215,37 +216,49 @@ impl BinanceAdapter {
     }
 
     async fn try_real_connection(&self) -> Result<()> {
-        // Use the combined stream endpoint with multiple symbols
-        let streams = vec![
-            "btcusdt@ticker",
-            "ethusdt@ticker", 
-            "dotusdt@ticker",
-            "adausdt@ticker",
-            "solusdt@ticker",
-            "maticusdt@ticker",
-            "avaxusdt@ticker",
-            "linkusdt@ticker",
-            "uniusdt@ticker",
-            "xrpusdt@ticker"
+        // List of alternative Binance WebSocket endpoints to try
+        let endpoints = vec![
+            // Standard stream endpoint (recommended)
+            "wss://stream.binance.com/ws/stream?streams=btcusdt@ticker/ethusdt@ticker/dotusdt@ticker/adausdt@ticker/solusdt@ticker/maticusdt@ticker/avaxusdt@ticker/linkusdt@ticker/uniusdt@ticker/xrpusdt@ticker",
+            // Alternative US endpoint
+            "wss://stream.binance.us/ws/stream?streams=btcusdt@ticker/ethusdt@ticker/dotusdt@ticker/adausdt@ticker/solusdt@ticker/maticusdt@ticker/avaxusdt@ticker/linkusdt@ticker/uniusdt@ticker/xrpusdt@ticker",
+            // Simple direct connection format  
+            "wss://stream.binance.com/ws/btcusdt@ticker/ethusdt@ticker/dotusdt@ticker/adausdt@ticker/solusdt@ticker/maticusdt@ticker/avaxusdt@ticker/linkusdt@ticker/uniusdt@ticker/xrpusdt@ticker",
+            // Alternative port
+            "wss://stream.binance.com:9443/ws/stream?streams=btcusdt@ticker/ethusdt@ticker/dotusdt@ticker/adausdt@ticker/solusdt@ticker/maticusdt@ticker/avaxusdt@ticker/linkusdt@ticker/uniusdt@ticker/xrpusdt@ticker",
         ];
         
-        // Try the official stream endpoint first
-        let stream_url = format!("{}stream?streams={}", BINANCE_WS_URL, streams.join("/"));
+        let mut last_error = None;
         
-        // Initialize WebSocket client
-        let mut ws_client = WsClient::new(&stream_url);
-        ws_client.connect().await?;
-        *self.ws_client.lock().await = Some(ws_client);
-        
-        // Start listening for messages in a background task
-        let adapter = self.clone();
-        tokio::spawn(async move {
-            if let Err(e) = adapter.listen_for_messages().await {
-                error!("Binance WebSocket listener error: {}", e);
+        for (i, stream_url) in endpoints.iter().enumerate() {
+            info!("Attempting Binance WebSocket connection {} of {}: {}", i + 1, endpoints.len(), stream_url);
+            
+            match WsClient::new(*stream_url).connect().await {
+                Ok(ws_client) => {
+                    info!("Successfully connected to Binance WebSocket endpoint {}", i + 1);
+                    *self.ws_client.lock().await = Some(ws_client);
+                    
+                    // Start listening for messages in a background task
+                    let adapter = self.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = adapter.listen_for_messages().await {
+                            error!("Binance WebSocket listener error: {}", e);
+                        }
+                    });
+                    
+                    return Ok(());
+                }
+                Err(e) => {
+                    warn!("Failed to connect to Binance endpoint {}: {}", i + 1, e);
+                    last_error = Some(e);
+                    // Small delay before trying next endpoint
+                    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                }
             }
-        });
+        }
         
-        Ok(())
+        // If all endpoints failed, return the last error
+        Err(last_error.unwrap_or_else(|| anyhow!("All Binance WebSocket endpoints failed")))
     }
 
     async fn start_mock_data(&self, hub: HubHandle) -> Result<()> {
