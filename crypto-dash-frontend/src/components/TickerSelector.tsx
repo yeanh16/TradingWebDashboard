@@ -109,7 +109,7 @@ export function TickerSelector({
   }
 
   return (
-    <div className="rounded-lg border bg-card p-6">
+    <div className="rounded-lg border bg-card p-6" data-testid="ticker-selector">
       <h3 className="text-lg font-semibold mb-4">Selected Tickers</h3>
       
       {/* Selected tickers */}

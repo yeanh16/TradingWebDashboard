@@ -24,10 +24,10 @@ export function LatencyBadge({ wsState, onClearError }: LatencyBadgeProps) {
   const status = getConnectionStatus()
 
   return (
-    <div className="flex items-center space-x-4 text-sm">
+    <div className="flex items-center space-x-4 text-sm" data-testid="latency-badge">
       {/* Connection Status */}
       <div className="flex items-center space-x-2">
-        <status.icon className={`w-4 h-4 ${status.color}`} />
+        <status.icon className={`w-4 h-4 ${status.color}`} data-testid={status.icon === Wifi ? "wifi-icon" : "wifi-off-icon"} />
         <span className={status.color}>
           {status.text}
         </span>

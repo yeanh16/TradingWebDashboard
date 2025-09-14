@@ -42,7 +42,7 @@ export function ExchangeSelector({
   }
 
   return (
-    <div className="rounded-lg border bg-card p-6">
+    <div className="rounded-lg border bg-card p-6" data-testid="exchange-selector">
       <h3 className="text-lg font-semibold mb-4">Exchanges</h3>
       <div className="space-y-3">
         {exchanges.map((exchange) => (
@@ -52,6 +52,13 @@ export function ExchangeSelector({
             onClick={() => toggleExchange(exchange.id)}
           >
             <div className="relative">
+              <input
+                type="checkbox"
+                checked={selectedExchanges.includes(exchange.id)}
+                onChange={() => toggleExchange(exchange.id)}
+                className="sr-only"
+                aria-label={`${exchange.name} exchange`}
+              />
               <div
                 className={`w-4 h-4 rounded border-2 flex items-center justify-center ${
                   selectedExchanges.includes(exchange.id)
