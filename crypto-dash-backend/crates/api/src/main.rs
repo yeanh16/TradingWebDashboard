@@ -75,6 +75,7 @@ async fn main() -> Result<()> {
         .route("/ready", get(routes::ready))
         // API routes
         .route("/api/exchanges", get(routes::list_exchanges))
+        .route("/api/symbols", get(routes::list_symbols))
         // WebSocket endpoint
         .route("/ws", get(ws::websocket_handler))
         // Add middleware

@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { TickerTable } from '@/components/TickerTable'
 import { ExchangeSelector } from '@/components/ExchangeSelector'
+import { TickerSelector } from '@/components/TickerSelector'
 import { LatencyBadge } from '@/components/LatencyBadge'
 import { useWebSocket } from '@/lib/useWebSocket'
 import { apiClient } from '@/lib/api'
@@ -14,6 +15,14 @@ interface Exchange {
   status: 'online' | 'offline' | 'maintenance'
 }
 
+interface SelectedTicker {
+  symbol: string
+  base: string
+  quote: string
+  exchange: string
+  display_name: string
+}
+
 const MOCK_EXCHANGES: Exchange[] = [
   { id: 'binance', name: 'Binance', status: 'online' },
   { id: 'bybit', name: 'Bybit', status: 'online' },
@@ -21,6 +30,11 @@ const MOCK_EXCHANGES: Exchange[] = [
 
 export default function HomePage() {
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance'])
+  const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>([
+    // Default tickers
+    { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', display_name: 'Bitcoin / USDT' },
+    { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', display_name: 'Ethereum / USDT' },
+  ])
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
   
@@ -43,36 +57,34 @@ export default function HomePage() {
     loadExchanges()
   }, [])
 
-  // Subscribe to ticker data when exchanges are selected
+  // Subscribe to ticker data when exchanges or tickers are selected
   useEffect(() => {
-    if (!wsState.connected || selectedExchanges.length === 0) {
+    if (!wsState.connected || selectedTickers.length === 0) {
       return
     }
 
-    // Define popular trading pairs to subscribe to
-    const symbols = [
-      { base: 'BTC', quote: 'USDT' },
-      { base: 'ETH', quote: 'USDT' },
-      { base: 'ADA', quote: 'USDT' },
-      { base: 'SOL', quote: 'USDT' },
-    ]
-
-    const channels: Channel[] = selectedExchanges.flatMap(exchange =>
-      symbols.map(symbol => ({
+    // Create channels from selected tickers that match selected exchanges
+    const channels: Channel[] = selectedTickers
+      .filter(ticker => selectedExchanges.includes(ticker.exchange))
+      .map(ticker => ({
         channel_type: 'ticker' as const,
-        exchange,
-        symbol,
+        exchange: ticker.exchange,
+        symbol: {
+          base: ticker.base,
+          quote: ticker.quote,
+        },
       }))
-    )
 
-    console.log('Subscribing to channels:', channels)
-    subscribe(channels)
+    if (channels.length > 0) {
+      console.log('Subscribing to channels:', channels)
+      subscribe(channels)
 
-    return () => {
-      console.log('Unsubscribing from channels:', channels)
-      unsubscribe(channels)
+      return () => {
+        console.log('Unsubscribing from channels:', channels)
+        unsubscribe(channels)
+      }
     }
-  }, [selectedExchanges, wsState.connected, subscribe, unsubscribe])
+  }, [selectedExchanges, selectedTickers, wsState.connected, subscribe, unsubscribe])
 
   if (loading) {
     return (
@@ -94,17 +106,23 @@ export default function HomePage() {
         <LatencyBadge wsState={wsState} onClearError={clearError} />
       </div>
 
-      <div className="grid gap-6 md:grid-cols-4">
-        <div className="md:col-span-1">
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-3 space-y-6">
           <ExchangeSelector
             exchanges={exchanges}
             selectedExchanges={selectedExchanges}
             onSelectionChange={setSelectedExchanges}
           />
+          <TickerSelector
+            selectedExchanges={selectedExchanges}
+            selectedTickers={selectedTickers}
+            onTickersChange={setSelectedTickers}
+          />
         </div>
-        <div className="md:col-span-3">
+        <div className="lg:col-span-9">
           <TickerTable 
             selectedExchanges={selectedExchanges} 
+            selectedTickers={selectedTickers}
             tickers={tickers}
             wsConnected={wsState.connected}
           />

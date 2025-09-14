@@ -16,8 +16,17 @@ interface TickerData {
   lastUpdate?: Date
 }
 
+interface SelectedTicker {
+  symbol: string
+  base: string
+  quote: string
+  exchange: string
+  display_name: string
+}
+
 interface TickerTableProps {
   selectedExchanges: string[]
+  selectedTickers: SelectedTicker[]
   tickers: Record<string, Ticker>
   wsConnected: boolean
 }
@@ -46,7 +55,7 @@ const MOCK_TICKERS: TickerData[] = [
   },
 ]
 
-export function TickerTable({ selectedExchanges, tickers, wsConnected }: TickerTableProps) {
+export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsConnected }: TickerTableProps) {
   const [loading, setLoading] = useState(true)
   const [priceChanges, setPriceChanges] = useState<Record<string, 'up' | 'down' | null>>({})
 
@@ -54,8 +63,23 @@ export function TickerTable({ selectedExchanges, tickers, wsConnected }: TickerT
   const displayTickers = useMemo(() => {
     const result: TickerData[] = []
     
-    Object.entries(tickers).forEach(([key, ticker]) => {
-      if (selectedExchanges.includes(ticker.exchange)) {
+    // Map through selected tickers and try to find live data for them
+    selectedTickers.forEach(selectedTicker => {
+      // Only show tickers for selected exchanges
+      if (!selectedExchanges.includes(selectedTicker.exchange)) {
+        return
+      }
+
+      // Try to find live ticker data
+      const tickerKey = Object.keys(tickers).find(key => {
+        const ticker = tickers[key]
+        return ticker.exchange === selectedTicker.exchange &&
+               ticker.symbol.base === selectedTicker.base &&
+               ticker.symbol.quote === selectedTicker.quote
+      })
+
+      if (tickerKey) {
+        const ticker = tickers[tickerKey]
         const spread = ticker.ask > 0 && ticker.bid > 0 
           ? (ticker.ask - ticker.bid) / ticker.ask * 100 
           : 0
@@ -71,16 +95,31 @@ export function TickerTable({ selectedExchanges, tickers, wsConnected }: TickerT
           spread,
           lastUpdate: new Date(ticker.timestamp),
         })
+      } else if (!wsConnected) {
+        // Show mock data for selected ticker when not connected
+        const mockTicker = MOCK_TICKERS.find(mock => 
+          mock.symbol === selectedTicker.symbol && mock.exchange === selectedTicker.exchange
+        )
+        if (mockTicker) {
+          result.push(mockTicker)
+        } else {
+          // Create a placeholder mock ticker
+          result.push({
+            symbol: selectedTicker.symbol,
+            exchange: selectedTicker.exchange,
+            bid: 0,
+            ask: 0,
+            last: 0,
+            change24h: 0,
+            volume24h: 0,
+            spread: 0,
+          })
+        }
       }
     })
     
-    // If no live data and not connected, show mock data
-    if (result.length === 0 && !wsConnected) {
-      return MOCK_TICKERS.filter(ticker => selectedExchanges.includes(ticker.exchange))
-    }
-    
     return result
-  }, [tickers, selectedExchanges, wsConnected])
+  }, [tickers, selectedExchanges, selectedTickers, wsConnected])
 
   // Track price changes for visual feedback
   useEffect(() => {

@@ -31,6 +31,11 @@ export class ApiClient {
     return this.request('/api/exchanges')
   }
 
+  async getSymbols(exchange?: string) {
+    const url = exchange ? `/api/symbols?exchange=${exchange}` : '/api/symbols'
+    return this.request(url)
+  }
+
   async getHealth() {
     return this.request('/health')
   }
