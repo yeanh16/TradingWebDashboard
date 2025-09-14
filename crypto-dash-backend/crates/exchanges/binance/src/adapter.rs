@@ -13,23 +13,26 @@ use async_trait::async_trait;
 use anyhow::{Result, anyhow};
 use rust_decimal::Decimal;
 use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/ws";
 
+#[derive(Clone)]
 pub struct BinanceAdapter {
-    ws_client: Option<WsClient>,
-    hub: Option<HubHandle>,
-    cache: Option<CacheHandle>,
+    ws_client: Arc<Mutex<Option<WsClient>>>,
+    hub: Arc<Mutex<Option<HubHandle>>>,
+    cache: Arc<Mutex<Option<CacheHandle>>>,
 }
 
 impl BinanceAdapter {
     pub fn new() -> Self {
         Self {
-            ws_client: None,
-            hub: None,
-            cache: None,
+            ws_client: Arc::new(Mutex::new(None)),
+            hub: Arc::new(Mutex::new(None)),
+            cache: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -65,12 +68,12 @@ impl BinanceAdapter {
         };
 
         // Cache the ticker
-        if let Some(cache) = &self.cache {
+        if let Some(cache) = &*self.cache.lock().await {
             cache.set_ticker(normalized_ticker.clone()).await;
         }
 
         // Publish to stream hub
-        if let Some(hub) = &self.hub {
+        if let Some(hub) = &*self.hub.lock().await {
             let topic = Topic::ticker(self.id(), symbol);
             hub.publish(&topic, StreamMessage::Ticker(normalized_ticker)).await;
         }
@@ -115,12 +118,12 @@ impl BinanceAdapter {
         };
 
         // Cache the orderbook
-        if let Some(cache) = &self.cache {
+        if let Some(cache) = &*self.cache.lock().await {
             cache.set_orderbook(normalized_orderbook.clone()).await;
         }
 
         // Publish to stream hub
-        if let Some(hub) = &self.hub {
+        if let Some(hub) = &*self.hub.lock().await {
             let topic = Topic::orderbook(self.id(), symbol);
             hub.publish(&topic, StreamMessage::OrderBookSnapshot(normalized_orderbook)).await;
         }
@@ -169,6 +172,43 @@ impl BinanceAdapter {
 
         Ok(subscription.to_string())
     }
+
+    async fn listen_for_messages(&self) -> Result<()> {
+        loop {
+            let message = {
+                let mut ws_guard = self.ws_client.lock().await;
+                if let Some(ws_client) = ws_guard.as_mut() {
+                    match ws_client.next_message().await? {
+                        Some(Message::Text(text)) => text,
+                        Some(Message::Close(_)) => {
+                            warn!("Binance WebSocket connection closed");
+                            break;
+                        }
+                        Some(_) => continue,
+                        None => {
+                            warn!("Binance WebSocket stream ended");
+                            break;
+                        }
+                    }
+                } else {
+                    error!("WebSocket client not initialized");
+                    break;
+                }
+            };
+
+            match serde_json::from_str::<BinanceStreamMessage>(&message) {
+                Ok(stream_message) => {
+                    if let Err(e) = self.handle_message(stream_message).await {
+                        error!("Failed to handle Binance message: {}", e);
+                    }
+                }
+                Err(e) => {
+                    debug!("Failed to parse Binance message: {} - Raw: {}", e, message);
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -177,30 +217,41 @@ impl ExchangeAdapter for BinanceAdapter {
         ExchangeId::from("binance")
     }
 
-    async fn start(&self, _hub: HubHandle, _cache: CacheHandle) -> Result<()> {
+    async fn start(&self, hub: HubHandle, cache: CacheHandle) -> Result<()> {
         info!("Starting Binance adapter");
         
-        // Store handles (in a real implementation, you'd use Arc<Mutex<>> or similar)
-        // For this demo, we'll just log that it's started
-        debug!("Binance adapter started with hub and cache handles");
+        // Store handles
+        *self.hub.lock().await = Some(hub.clone());
+        *self.cache.lock().await = Some(cache.clone());
         
+        // Initialize WebSocket client
+        let mut ws_client = WsClient::new(BINANCE_WS_URL);
+        ws_client.connect().await?;
+        *self.ws_client.lock().await = Some(ws_client);
+        
+        // Start listening for messages in a background task
+        let adapter = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = adapter.listen_for_messages().await {
+                error!("Binance WebSocket listener error: {}", e);
+            }
+        });
+        
+        debug!("Binance adapter started with hub and cache handles");
         Ok(())
     }
 
     async fn subscribe(&self, channels: &[Channel]) -> Result<()> {
         info!("Subscribing to {} Binance channels", channels.len());
         
-        // In a real implementation, this would connect to WebSocket and subscribe
-        for channel in channels {
-            debug!(
-                "Would subscribe to Binance {} for {}/{}",
-                match channel.channel_type {
-                    ChannelType::Ticker => "ticker",
-                    ChannelType::OrderBook => "orderbook",
-                },
-                channel.exchange.as_str(),
-                channel.symbol.canonical()
-            );
+        let subscription = self.format_subscription(channels)?;
+        
+        let mut ws_guard = self.ws_client.lock().await;
+        if let Some(ws_client) = ws_guard.as_mut() {
+            ws_client.send_text(&subscription).await?;
+            debug!("Sent Binance subscription: {}", subscription);
+        } else {
+            return Err(anyhow!("WebSocket client not connected"));
         }
         
         Ok(())
@@ -212,12 +263,22 @@ impl ExchangeAdapter for BinanceAdapter {
     }
 
     async fn is_connected(&self) -> bool {
-        // In a real implementation, check WebSocket connection status
-        true
+        let ws_guard = self.ws_client.lock().await;
+        if let Some(ws_client) = ws_guard.as_ref() {
+            ws_client.is_connected()
+        } else {
+            false
+        }
     }
 
     async fn stop(&self) -> Result<()> {
         info!("Stopping Binance adapter");
+        
+        let mut ws_guard = self.ws_client.lock().await;
+        if let Some(mut ws_client) = ws_guard.take() {
+            ws_client.close().await?;
+        }
+        
         Ok(())
     }
 }
