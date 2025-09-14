@@ -33,16 +33,16 @@ impl MockDataGenerator {
         ];
 
         let mut base_prices = std::collections::HashMap::new();
-        base_prices.insert("BTC".to_string(), Decimal::from_str("43250.50").unwrap());
-        base_prices.insert("ETH".to_string(), Decimal::from_str("2650.25").unwrap());
-        base_prices.insert("DOT".to_string(), Decimal::from_str("6.45").unwrap());
-        base_prices.insert("ADA".to_string(), Decimal::from_str("0.485").unwrap());
-        base_prices.insert("SOL".to_string(), Decimal::from_str("102.75").unwrap());
-        base_prices.insert("MATIC".to_string(), Decimal::from_str("0.825").unwrap());
-        base_prices.insert("AVAX".to_string(), Decimal::from_str("24.50").unwrap());
-        base_prices.insert("LINK".to_string(), Decimal::from_str("14.85").unwrap());
-        base_prices.insert("UNI".to_string(), Decimal::from_str("7.25").unwrap());
-        base_prices.insert("XRP".to_string(), Decimal::from_str("0.585").unwrap());
+        base_prices.insert("BTC".to_string(), Decimal::from_str("43251.00").unwrap());
+        base_prices.insert("ETH".to_string(), Decimal::from_str("2650.60").unwrap());
+        base_prices.insert("DOT".to_string(), Decimal::from_str("7.85").unwrap());
+        base_prices.insert("ADA".to_string(), Decimal::from_str("0.95").unwrap());
+        base_prices.insert("SOL".to_string(), Decimal::from_str("240.00").unwrap());
+        base_prices.insert("MATIC".to_string(), Decimal::from_str("0.55").unwrap());
+        base_prices.insert("AVAX".to_string(), Decimal::from_str("42.50").unwrap());
+        base_prices.insert("LINK".to_string(), Decimal::from_str("25.80").unwrap());
+        base_prices.insert("UNI".to_string(), Decimal::from_str("12.45").unwrap());
+        base_prices.insert("XRP".to_string(), Decimal::from_str("2.35").unwrap());
 
         Self {
             exchange_id,

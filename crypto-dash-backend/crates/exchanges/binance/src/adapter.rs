@@ -18,7 +18,7 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
-const BINANCE_WS_URL: &str = "wss://ws-api.binance.com:443/ws-api/v3";
+const BINANCE_WS_URL: &str = "wss://stream.binance.com/ws/";
 
 #[derive(Clone)]
 pub struct BinanceAdapter {
@@ -215,8 +215,25 @@ impl BinanceAdapter {
     }
 
     async fn try_real_connection(&self) -> Result<()> {
+        // Use the combined stream endpoint with multiple symbols
+        let streams = vec![
+            "btcusdt@ticker",
+            "ethusdt@ticker", 
+            "dotusdt@ticker",
+            "adausdt@ticker",
+            "solusdt@ticker",
+            "maticusdt@ticker",
+            "avaxusdt@ticker",
+            "linkusdt@ticker",
+            "uniusdt@ticker",
+            "xrpusdt@ticker"
+        ];
+        
+        // Try the official stream endpoint first
+        let stream_url = format!("{}stream?streams={}", BINANCE_WS_URL, streams.join("/"));
+        
         // Initialize WebSocket client
-        let mut ws_client = WsClient::new(BINANCE_WS_URL);
+        let mut ws_client = WsClient::new(&stream_url);
         ws_client.connect().await?;
         *self.ws_client.lock().await = Some(ws_client);
         
@@ -281,16 +298,9 @@ impl ExchangeAdapter for BinanceAdapter {
             return Ok(());
         }
         
-        let subscription = self.format_subscription(channels)?;
-        
-        let mut ws_guard = self.ws_client.lock().await;
-        if let Some(ws_client) = ws_guard.as_mut() {
-            ws_client.send_text(&subscription).await?;
-            debug!("Sent Binance subscription: {}", subscription);
-        } else {
-            return Err(anyhow!("WebSocket client not connected"));
-        }
-        
+        // For the stream endpoint, the streams are already connected via the URL
+        // No additional subscription messages are needed
+        debug!("Binance streams already connected via URL");
         Ok(())
     }
 
