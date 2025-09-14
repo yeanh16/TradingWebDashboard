@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 /// Binance ticker response
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(non_snake_case)]
 pub struct BinanceTicker {
     pub s: String, // symbol
     pub c: String, // close price (last)
