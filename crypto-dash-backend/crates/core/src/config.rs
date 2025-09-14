@@ -9,6 +9,7 @@ pub struct Config {
     pub redis_url: String,
     pub book_depth_default: u16,
     pub log_level: String,
+    pub enable_real_connections: bool, // New flag for testing
 }
 
 impl Config {
@@ -43,6 +44,7 @@ impl Default for Config {
             redis_url: "redis://127.0.0.1:6379".to_string(),
             book_depth_default: 50,
             log_level: "info".to_string(),
+            enable_real_connections: true,
         }
     }
 }

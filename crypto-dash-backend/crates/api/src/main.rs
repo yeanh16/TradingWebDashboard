@@ -15,7 +15,6 @@ use crypto_dash_exchanges_common::ExchangeAdapter;
 use crypto_dash_stream_hub::StreamHub;
 use state::AppState;
 use std::sync::Arc;
-use tower::ServiceBuilder;
 use tower_http::cors::CorsLayer;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -76,6 +75,8 @@ async fn main() -> Result<()> {
         .route("/ready", get(routes::ready))
         // API routes
         .route("/api/exchanges", get(routes::list_exchanges))
+        // WebSocket endpoint
+        .route("/ws", get(ws::websocket_handler))
         // Add middleware
         .layer(CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())

@@ -9,6 +9,7 @@ crypto-dash-stream-hub = { path = "../../stream-hub" }
 crypto-dash-cache = { path = "../../cache" }
 crypto-dash-exchanges-common = { path = "../common" }
 tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

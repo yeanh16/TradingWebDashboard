@@ -14,3 +14,4 @@ serde_json = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
 uuid = { workspace = true }
+rust_decimal = { workspace = true }

@@ -126,7 +126,7 @@ mod tests {
     async fn test_retry_failure() {
         let mut call_count = 0;
         
-        let result = retry_with_backoff(
+        let result: Result<&str, &str> = retry_with_backoff(
             || {
                 call_count += 1;
                 async move { Err("always fails") }
