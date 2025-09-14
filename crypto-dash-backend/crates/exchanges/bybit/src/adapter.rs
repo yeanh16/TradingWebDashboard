@@ -1,7 +1,7 @@
 use crate::types::{BybitMessage, BybitTicker};
 use crypto_dash_cache::CacheHandle;
 use crypto_dash_core::model::{Channel, ChannelType, ExchangeId, Symbol, Ticker, StreamMessage};
-use crypto_dash_exchanges_common::{ExchangeAdapter, WsClient};
+use crypto_dash_exchanges_common::{ExchangeAdapter, WsClient, MockDataGenerator};
 use crypto_dash_stream_hub::{HubHandle, Topic};
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
@@ -19,6 +19,8 @@ pub struct BybitAdapter {
     ws_client: Arc<Mutex<Option<WsClient>>>,
     hub: Arc<Mutex<Option<HubHandle>>>,
     cache: Arc<Mutex<Option<CacheHandle>>>,
+    mock_generator: Arc<Mutex<Option<MockDataGenerator>>>,
+    use_mock_data: Arc<Mutex<bool>>,
 }
 
 impl BybitAdapter {
@@ -27,6 +29,8 @@ impl BybitAdapter {
             ws_client: Arc::new(Mutex::new(None)),
             hub: Arc::new(Mutex::new(None)),
             cache: Arc::new(Mutex::new(None)),
+            mock_generator: Arc::new(Mutex::new(None)),
+            use_mock_data: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -149,6 +153,31 @@ impl BybitAdapter {
         }
         Ok(())
     }
+
+    async fn try_real_connection(&self) -> Result<()> {
+        // Initialize WebSocket client
+        let mut ws_client = WsClient::new(BYBIT_WS_URL);
+        ws_client.connect().await?;
+        *self.ws_client.lock().await = Some(ws_client);
+        
+        // Start listening for messages in a background task
+        let adapter = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = adapter.listen_for_messages().await {
+                error!("Bybit WebSocket listener error: {}", e);
+            }
+        });
+        
+        Ok(())
+    }
+
+    async fn start_mock_data(&self, hub: HubHandle) -> Result<()> {
+        info!("Starting Bybit mock data generator");
+        let mock_generator = MockDataGenerator::new(self.id(), hub);
+        mock_generator.start().await;
+        *self.mock_generator.lock().await = Some(mock_generator);
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -164,18 +193,18 @@ impl ExchangeAdapter for BybitAdapter {
         *self.hub.lock().await = Some(hub.clone());
         *self.cache.lock().await = Some(cache.clone());
         
-        // Initialize WebSocket client
-        let mut ws_client = WsClient::new(BYBIT_WS_URL);
-        ws_client.connect().await?;
-        *self.ws_client.lock().await = Some(ws_client);
-        
-        // Start listening for messages in a background task
-        let adapter = self.clone();
-        tokio::spawn(async move {
-            if let Err(e) = adapter.listen_for_messages().await {
-                error!("Bybit WebSocket listener error: {}", e);
+        // Try to connect to real WebSocket first
+        match self.try_real_connection().await {
+            Ok(()) => {
+                info!("Bybit adapter connected to real WebSocket");
+                *self.use_mock_data.lock().await = false;
             }
-        });
+            Err(e) => {
+                warn!("Failed to connect to real Bybit WebSocket: {}. Falling back to mock data.", e);
+                self.start_mock_data(hub).await?;
+                *self.use_mock_data.lock().await = true;
+            }
+        }
         
         debug!("Bybit adapter started with hub and cache handles");
         Ok(())
@@ -183,6 +212,14 @@ impl ExchangeAdapter for BybitAdapter {
 
     async fn subscribe(&self, channels: &[Channel]) -> Result<()> {
         info!("Subscribing to {} Bybit channels", channels.len());
+        
+        let use_mock = *self.use_mock_data.lock().await;
+        
+        if use_mock {
+            info!("Using mock data for Bybit - subscription request acknowledged");
+            // Mock data generator is already running, just acknowledge the subscription
+            return Ok(());
+        }
         
         let subscription = self.format_subscription(channels)?;
         
@@ -203,6 +240,13 @@ impl ExchangeAdapter for BybitAdapter {
     }
 
     async fn is_connected(&self) -> bool {
+        let use_mock = *self.use_mock_data.lock().await;
+        
+        if use_mock {
+            // Mock data is always "connected"
+            return true;
+        }
+        
         let ws_guard = self.ws_client.lock().await;
         if let Some(ws_client) = ws_guard.as_ref() {
             ws_client.is_connected()

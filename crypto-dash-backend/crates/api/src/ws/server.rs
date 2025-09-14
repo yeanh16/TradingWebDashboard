@@ -8,6 +8,8 @@ use axum::{
 use crypto_dash_core::model::{ClientMessage, StreamMessage};
 use crate::state::AppState;
 use futures::{sink::SinkExt, stream::StreamExt};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -24,7 +26,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let session_id = Uuid::new_v4();
     info!("New WebSocket connection: {}", session_id);
 
-    let (mut sender, mut receiver) = socket.split();
+    let (sender, mut receiver) = socket.split();
+    let sender = Arc::new(Mutex::new(sender));
 
     // Send welcome message
     let welcome = StreamMessage::Info {
@@ -32,11 +35,38 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     };
     
     if let Ok(msg) = serde_json::to_string(&welcome) {
-        if sender.send(Message::Text(msg)).await.is_err() {
+        let mut sender_guard = sender.lock().await;
+        if sender_guard.send(Message::Text(msg)).await.is_err() {
             error!("Failed to send welcome message to {}", session_id);
             return;
         }
     }
+
+    // Create a subscriber for stream hub messages
+    let mut stream_receiver = state.hub.subscribe_all().await;
+    
+    // Spawn a task to forward stream hub messages to the WebSocket
+    let ws_sender = Arc::clone(&sender);
+    let forward_task = tokio::spawn(async move {
+        loop {
+            match stream_receiver.recv().await {
+                Ok((topic, stream_msg)) => {
+                    debug!("Forwarding stream message for topic: {:?}", topic);
+                    if let Ok(msg_text) = serde_json::to_string(&stream_msg) {
+                        let mut sender_guard = ws_sender.lock().await;
+                        if sender_guard.send(Message::Text(msg_text)).await.is_err() {
+                            debug!("Failed to forward stream message - client disconnected");
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Error receiving from stream hub: {}", e);
+                    break;
+                }
+            }
+        }
+    });
 
     // Handle incoming messages
     while let Some(msg) = receiver.next().await {
@@ -46,7 +76,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                 
                 match serde_json::from_str::<ClientMessage>(&text) {
                     Ok(client_msg) => {
-                        if let Err(e) = handle_client_message(client_msg, &state, &mut sender).await {
+                        if let Err(e) = handle_client_message(client_msg, &state, &sender).await {
                             error!("Error handling client message: {}", e);
                         }
                     }
@@ -57,7 +87,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                         };
                         
                         if let Ok(msg_text) = serde_json::to_string(&error_msg) {
-                            let _ = sender.send(Message::Text(msg_text)).await;
+                            let mut sender_guard = sender.lock().await;
+                            let _ = sender_guard.send(Message::Text(msg_text)).await;
                         }
                     }
                 }
@@ -68,7 +99,8 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
             }
             Ok(Message::Ping(ping)) => {
                 debug!("Received ping from {}", session_id);
-                if sender.send(Message::Pong(ping)).await.is_err() {
+                let mut sender_guard = sender.lock().await;
+                if sender_guard.send(Message::Pong(ping)).await.is_err() {
                     break;
                 }
             }
@@ -85,48 +117,84 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         }
     }
 
+    // Cancel the forwarding task when WebSocket disconnects
+    forward_task.abort();
     info!("WebSocket connection ended: {}", session_id);
 }
 
 /// Handle client messages
 async fn handle_client_message(
     message: ClientMessage,
-    _state: &AppState,
-    sender: &mut futures::stream::SplitSink<WebSocket, Message>,
+    state: &AppState,
+    sender: &Arc<Mutex<futures::stream::SplitSink<WebSocket, Message>>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     match message {
         ClientMessage::Subscribe { channels } => {
             debug!("Subscribe request for {} channels", channels.len());
             
-            // In a real implementation, subscribe to the requested channels
+            // Group channels by exchange
+            let mut exchanges_channels = std::collections::HashMap::new();
             for channel in &channels {
-                debug!(
-                    "Would subscribe to {} {} on {}",
-                    channel.symbol.canonical(),
-                    match channel.channel_type {
-                        crypto_dash_core::model::ChannelType::Ticker => "ticker",
-                        crypto_dash_core::model::ChannelType::OrderBook => "orderbook",
-                    },
-                    channel.exchange.as_str()
-                );
+                let exchange_id = channel.exchange.as_str().to_string();
+                exchanges_channels.entry(exchange_id).or_insert_with(Vec::new).push(channel.clone());
+            }
+            
+            let num_exchanges = exchanges_channels.len();
+            
+            // Subscribe to each exchange
+            for (exchange_id, exchange_channels) in &exchanges_channels {
+                if let Some(adapter) = state.exchanges.get(exchange_id) {
+                    debug!("Subscribing to {} channels on {}", exchange_channels.len(), exchange_id);
+                    match adapter.subscribe(exchange_channels).await {
+                        Ok(()) => {
+                            info!("Successfully subscribed to {} channels on {}", exchange_channels.len(), exchange_id);
+                        }
+                        Err(e) => {
+                            error!("Failed to subscribe to {} channels on {}: {}", exchange_channels.len(), exchange_id, e);
+                        }
+                    }
+                } else {
+                    warn!("Unknown exchange: {}", exchange_id);
+                }
             }
 
             let response = StreamMessage::Info {
-                message: format!("Subscribed to {} channels", channels.len()),
+                message: format!("Subscribed to {} channels across {} exchanges", channels.len(), num_exchanges),
             };
             
             let msg_text = serde_json::to_string(&response)?;
-            sender.send(Message::Text(msg_text)).await?;
+            let mut sender_guard = sender.lock().await;
+            sender_guard.send(Message::Text(msg_text)).await?;
         }
         ClientMessage::Unsubscribe { channels } => {
             debug!("Unsubscribe request for {} channels", channels.len());
+            
+            // Group channels by exchange
+            let mut exchanges_channels = std::collections::HashMap::new();
+            for channel in &channels {
+                let exchange_id = channel.exchange.as_str().to_string();
+                exchanges_channels.entry(exchange_id).or_insert_with(Vec::new).push(channel.clone());
+            }
+            
+            // Unsubscribe from each exchange
+            for (exchange_id, exchange_channels) in exchanges_channels {
+                if let Some(adapter) = state.exchanges.get(&exchange_id) {
+                    debug!("Unsubscribing from {} channels on {}", exchange_channels.len(), exchange_id);
+                    if let Err(e) = adapter.unsubscribe(&exchange_channels).await {
+                        error!("Failed to unsubscribe from {} channels on {}: {}", exchange_channels.len(), exchange_id, e);
+                    }
+                } else {
+                    warn!("Unknown exchange: {}", exchange_id);
+                }
+            }
             
             let response = StreamMessage::Info {
                 message: format!("Unsubscribed from {} channels", channels.len()),
             };
             
             let msg_text = serde_json::to_string(&response)?;
-            sender.send(Message::Text(msg_text)).await?;
+            let mut sender_guard = sender.lock().await;
+            sender_guard.send(Message::Text(msg_text)).await?;
         }
         ClientMessage::Ping => {
             debug!("Ping received");
@@ -136,7 +204,8 @@ async fn handle_client_message(
             };
             
             let msg_text = serde_json::to_string(&response)?;
-            sender.send(Message::Text(msg_text)).await?;
+            let mut sender_guard = sender.lock().await;
+            sender_guard.send(Message::Text(msg_text)).await?;
         }
     }
 

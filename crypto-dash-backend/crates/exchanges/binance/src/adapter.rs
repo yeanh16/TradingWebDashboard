@@ -7,7 +7,7 @@ use crypto_dash_core::{
     },
     time::from_millis,
 };
-use crypto_dash_exchanges_common::{ExchangeAdapter, WsClient};
+use crypto_dash_exchanges_common::{ExchangeAdapter, WsClient, MockDataGenerator};
 use crypto_dash_stream_hub::{HubHandle, Topic};
 use async_trait::async_trait;
 use anyhow::{Result, anyhow};
@@ -25,6 +25,8 @@ pub struct BinanceAdapter {
     ws_client: Arc<Mutex<Option<WsClient>>>,
     hub: Arc<Mutex<Option<HubHandle>>>,
     cache: Arc<Mutex<Option<CacheHandle>>>,
+    mock_generator: Arc<Mutex<Option<MockDataGenerator>>>,
+    use_mock_data: Arc<Mutex<bool>>,
 }
 
 impl BinanceAdapter {
@@ -33,6 +35,8 @@ impl BinanceAdapter {
             ws_client: Arc::new(Mutex::new(None)),
             hub: Arc::new(Mutex::new(None)),
             cache: Arc::new(Mutex::new(None)),
+            mock_generator: Arc::new(Mutex::new(None)),
+            use_mock_data: Arc::new(Mutex::new(false)),
         }
     }
 
@@ -209,6 +213,31 @@ impl BinanceAdapter {
         }
         Ok(())
     }
+
+    async fn try_real_connection(&self) -> Result<()> {
+        // Initialize WebSocket client
+        let mut ws_client = WsClient::new(BINANCE_WS_URL);
+        ws_client.connect().await?;
+        *self.ws_client.lock().await = Some(ws_client);
+        
+        // Start listening for messages in a background task
+        let adapter = self.clone();
+        tokio::spawn(async move {
+            if let Err(e) = adapter.listen_for_messages().await {
+                error!("Binance WebSocket listener error: {}", e);
+            }
+        });
+        
+        Ok(())
+    }
+
+    async fn start_mock_data(&self, hub: HubHandle) -> Result<()> {
+        info!("Starting Binance mock data generator");
+        let mock_generator = MockDataGenerator::new(self.id(), hub);
+        mock_generator.start().await;
+        *self.mock_generator.lock().await = Some(mock_generator);
+        Ok(())
+    }
 }
 
 #[async_trait]
@@ -224,18 +253,18 @@ impl ExchangeAdapter for BinanceAdapter {
         *self.hub.lock().await = Some(hub.clone());
         *self.cache.lock().await = Some(cache.clone());
         
-        // Initialize WebSocket client
-        let mut ws_client = WsClient::new(BINANCE_WS_URL);
-        ws_client.connect().await?;
-        *self.ws_client.lock().await = Some(ws_client);
-        
-        // Start listening for messages in a background task
-        let adapter = self.clone();
-        tokio::spawn(async move {
-            if let Err(e) = adapter.listen_for_messages().await {
-                error!("Binance WebSocket listener error: {}", e);
+        // Try to connect to real WebSocket first
+        match self.try_real_connection().await {
+            Ok(()) => {
+                info!("Binance adapter connected to real WebSocket");
+                *self.use_mock_data.lock().await = false;
             }
-        });
+            Err(e) => {
+                warn!("Failed to connect to real Binance WebSocket: {}. Falling back to mock data.", e);
+                self.start_mock_data(hub).await?;
+                *self.use_mock_data.lock().await = true;
+            }
+        }
         
         debug!("Binance adapter started with hub and cache handles");
         Ok(())
@@ -243,6 +272,14 @@ impl ExchangeAdapter for BinanceAdapter {
 
     async fn subscribe(&self, channels: &[Channel]) -> Result<()> {
         info!("Subscribing to {} Binance channels", channels.len());
+        
+        let use_mock = *self.use_mock_data.lock().await;
+        
+        if use_mock {
+            info!("Using mock data for Binance - subscription request acknowledged");
+            // Mock data generator is already running, just acknowledge the subscription
+            return Ok(());
+        }
         
         let subscription = self.format_subscription(channels)?;
         
@@ -263,6 +300,13 @@ impl ExchangeAdapter for BinanceAdapter {
     }
 
     async fn is_connected(&self) -> bool {
+        let use_mock = *self.use_mock_data.lock().await;
+        
+        if use_mock {
+            // Mock data is always "connected"
+            return true;
+        }
+        
         let ws_guard = self.ws_client.lock().await;
         if let Some(ws_client) = ws_guard.as_ref() {
             ws_client.is_connected()

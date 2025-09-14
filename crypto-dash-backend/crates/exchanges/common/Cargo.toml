@@ -18,3 +18,5 @@ tracing = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
+rust_decimal = { workspace = true }
+rand = "0.8"
