@@ -1,4 +1,4 @@
-use crate::types::{BinanceStreamMessage, BinanceTicker, BinanceOrderBook};
+use crate::types::{BinanceStreamMessage, BinanceTicker, BinanceOrderBook, Binance24hrTicker};
 use crypto_dash_cache::CacheHandle;
 use crypto_dash_core::{
     model::{
@@ -48,6 +48,9 @@ impl BinanceAdapter {
             BinanceStreamMessage::OrderBook { stream, data } => {
                 self.handle_orderbook(&stream, data).await?;
             }
+            BinanceStreamMessage::DirectTicker24hr(ticker_24hr) => {
+                self.handle_24hr_ticker(ticker_24hr).await?;
+            }
             BinanceStreamMessage::Error { error, .. } => {
                 error!("Binance error: {} - {}", error.code, error.msg);
             }
@@ -82,6 +85,37 @@ impl BinanceAdapter {
             hub.publish(&topic, StreamMessage::Ticker(normalized_ticker)).await;
         }
 
+        Ok(())
+    }
+
+    async fn handle_24hr_ticker(&self, ticker: Binance24hrTicker) -> Result<()> {
+        let symbol = self.parse_symbol(&ticker.s)?;
+        let timestamp = from_millis(ticker.event_time)
+            .ok_or_else(|| anyhow!("Invalid timestamp: {}", ticker.event_time))?;
+
+        let normalized_ticker = Ticker {
+            timestamp,
+            exchange: self.id(),
+            symbol: symbol.clone(),
+            bid: Decimal::from_str(&ticker.b)?,
+            ask: Decimal::from_str(&ticker.a)?,
+            last: Decimal::from_str(&ticker.c)?,
+            bid_size: Decimal::from_str(&ticker.best_bid_qty)?,
+            ask_size: Decimal::from_str(&ticker.best_ask_qty)?,
+        };
+
+        // Cache the ticker
+        if let Some(cache) = &*self.cache.lock().await {
+            cache.set_ticker(normalized_ticker.clone()).await;
+        }
+
+        // Publish to stream hub
+        if let Some(hub) = &*self.hub.lock().await {
+            let topic = Topic::ticker(self.id(), symbol);
+            hub.publish(&topic, StreamMessage::Ticker(normalized_ticker)).await;
+        }
+
+        debug!("Processed 24hr ticker for {}: last={}", ticker.s, ticker.c);
         Ok(())
     }
 
