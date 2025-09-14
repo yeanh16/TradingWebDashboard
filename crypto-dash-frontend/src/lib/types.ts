@@ -56,3 +56,15 @@ export interface Channel {
   symbol: Symbol
   depth?: number
 }
+
+export interface SymbolInfo {
+  symbol: string
+  base: string
+  quote: string
+  display_name: string
+}
+
+export interface SymbolResponse {
+  exchange: string
+  symbols: SymbolInfo[]
+}
