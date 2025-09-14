@@ -30,6 +30,7 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 futures = "0.3"
 url = "2.4"
+rand = "0.8"
 
 [profile.dev]
 debug = true

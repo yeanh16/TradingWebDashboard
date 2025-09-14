@@ -3,7 +3,7 @@ use crypto_dash_core::model::StreamMessage;
 use dashmap::DashMap;
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use tracing::{debug, warn};
+use tracing::debug;
 use uuid::Uuid;
 
 const CHANNEL_CAPACITY: usize = 1000;
@@ -23,6 +23,11 @@ impl HubHandle {
     /// Subscribe to a topic and get a receiver
     pub async fn subscribe(&self, topic: &Topic) -> SubscriberHandle {
         self.inner.subscribe(topic).await
+    }
+
+    /// Subscribe to all topics (for WebSocket forwarding)
+    pub async fn subscribe_all(&self) -> GlobalSubscriberHandle {
+        self.inner.subscribe_all().await
     }
 
     /// Get the number of active topics
@@ -58,26 +63,48 @@ impl SubscriberHandle {
     }
 }
 
+/// Handle for a global subscription to receive all messages
+pub struct GlobalSubscriberHandle {
+    pub id: Uuid,
+    pub receiver: broadcast::Receiver<(Topic, StreamMessage)>,
+}
+
+impl GlobalSubscriberHandle {
+    /// Receive the next message
+    pub async fn recv(&mut self) -> Result<(Topic, StreamMessage), broadcast::error::RecvError> {
+        self.receiver.recv().await
+    }
+
+    /// Try to receive a message without blocking
+    pub fn try_recv(&mut self) -> Result<(Topic, StreamMessage), broadcast::error::TryRecvError> {
+        self.receiver.try_recv()
+    }
+}
+
 struct TopicChannel {
     sender: broadcast::Sender<StreamMessage>,
 }
 
 struct StreamHubInner {
     topics: DashMap<String, TopicChannel>,
+    global_sender: broadcast::Sender<(Topic, StreamMessage)>,
 }
 
 impl StreamHubInner {
     fn new() -> Self {
+        let (global_sender, _) = broadcast::channel(CHANNEL_CAPACITY);
         Self {
             topics: DashMap::new(),
+            global_sender,
         }
     }
 
     async fn publish(&self, topic: &Topic, message: StreamMessage) {
         let topic_key = topic.key();
         
+        // Publish to specific topic subscribers
         if let Some(entry) = self.topics.get(&topic_key) {
-            match entry.sender.send(message) {
+            match entry.sender.send(message.clone()) {
                 Ok(subscriber_count) => {
                     debug!(
                         topic = %topic_key,
@@ -86,11 +113,23 @@ impl StreamHubInner {
                     );
                 }
                 Err(_) => {
-                    warn!(topic = %topic_key, "No active subscribers for topic");
+                    debug!(topic = %topic_key, "No active subscribers for topic");
                 }
             }
-        } else {
-            debug!(topic = %topic_key, "No channel exists for topic");
+        }
+        
+        // Also publish to global subscribers (like WebSocket clients)
+        match self.global_sender.send((topic.clone(), message)) {
+            Ok(subscriber_count) => {
+                debug!(
+                    topic = %topic_key,
+                    global_subscribers = subscriber_count,
+                    "Published message to global subscribers"
+                );
+            }
+            Err(_) => {
+                debug!("No active global subscribers");
+            }
         }
     }
 
@@ -117,6 +156,21 @@ impl StreamHubInner {
         SubscriberHandle {
             id,
             topic: topic.clone(),
+            receiver,
+        }
+    }
+
+    async fn subscribe_all(&self) -> GlobalSubscriberHandle {
+        let id = Uuid::new_v4();
+        let receiver = self.global_sender.subscribe();
+        
+        debug!(
+            subscriber_id = %id,
+            "New global subscriber"
+        );
+
+        GlobalSubscriberHandle {
+            id,
             receiver,
         }
     }
