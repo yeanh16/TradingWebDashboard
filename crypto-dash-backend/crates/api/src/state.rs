@@ -8,7 +8,9 @@ use std::sync::Arc;
 /// Shared application state
 #[derive(Clone)]
 pub struct AppState {
+    #[allow(dead_code)]
     pub hub: HubHandle,
+    #[allow(dead_code)]
     pub cache: CacheHandle,
     pub exchanges: HashMap<String, Arc<dyn ExchangeAdapter>>,
 }
