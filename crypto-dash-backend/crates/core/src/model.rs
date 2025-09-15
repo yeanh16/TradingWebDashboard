@@ -39,7 +39,7 @@ impl Symbol {
     }
 }
 
-/// Exchange-specific symbol information
+/// Exchange-specific symbol information (legacy)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolInfo {
     pub exchange_symbol: String,
@@ -49,6 +49,21 @@ pub struct SymbolInfo {
     pub qty_precision: u8,
     pub min_qty: Decimal,
     pub tick_size: Decimal,
+}
+
+/// Canonical symbol metadata structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SymbolMeta {
+    pub exchange: ExchangeId,
+    pub symbol: String,
+    pub base: String,
+    pub quote: String,
+    pub price_precision: u32,
+    pub tick_size: String, // Use string to preserve exact decimal representation
+    pub min_qty: Decimal,
+    pub step_size: Decimal,
+    pub filters: Option<HashMap<String, String>>,
+    pub info: serde_json::Value,
 }
 
 /// Price level in order book

@@ -3,15 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Search, X, Plus } from 'lucide-react'
 import { apiClient } from '@/lib/api'
-import { SymbolResponse, SymbolInfo } from '@/lib/types'
-
-interface SelectedTicker {
-  symbol: string
-  base: string
-  quote: string
-  exchange: string
-  display_name: string
-}
+import { SymbolResponse, SymbolInfo, SelectedTicker } from '@/lib/types'
 
 interface TickerSelectorProps {
   selectedExchanges: string[]
@@ -82,6 +74,10 @@ export function TickerSelector({
       quote: symbol.quote,
       exchange: symbol.exchange,
       display_name: symbol.display_name,
+      price_precision: symbol.price_precision,
+      tick_size: symbol.tick_size,
+      min_qty: symbol.min_qty,
+      step_size: symbol.step_size,
     }
 
     // Check if ticker is already selected

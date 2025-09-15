@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { TrendingUp, TrendingDown, Wifi, WifiOff } from 'lucide-react'
-import { Ticker } from '@/lib/types'
+import { Ticker, SelectedTicker } from '@/lib/types'
 
 interface TickerData {
   symbol: string
@@ -14,14 +14,6 @@ interface TickerData {
   volume24h: number
   spread: number
   lastUpdate?: Date
-}
-
-interface SelectedTicker {
-  symbol: string
-  base: string
-  quote: string
-  exchange: string
-  display_name: string
 }
 
 interface TickerTableProps {
@@ -148,10 +140,11 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
     return () => clearTimeout(timer)
   }, [])
 
-  const formatPrice = (price: number, decimals = 2) => {
+  const formatPrice = (price: number, decimals?: number) => {
+    const precision = decimals ?? 2;
     return price.toLocaleString('en-US', {
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
+      minimumFractionDigits: precision,
+      maximumFractionDigits: precision,
     })
   }
 
@@ -226,6 +219,15 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
               <tbody>
                 {displayTickers.map((ticker) => {
                   const tickerKey = `${ticker.exchange}_${ticker.symbol.replace('-', '')}`
+                  
+                  // Find the selected ticker that matches this display ticker to get metadata
+                  const selectedTicker = selectedTickers.find(st => 
+                    st.symbol === ticker.symbol && st.exchange === ticker.exchange
+                  )
+                  
+                  // Use price precision from metadata or default to 2
+                  const pricePrecision = selectedTicker?.price_precision ?? 2
+                  
                   return (
                     <tr 
                       key={tickerKey} 
@@ -240,13 +242,13 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
                         </div>
                       </td>
                       <td className="py-3 text-right font-mono">
-                        ${formatPrice(ticker.last)}
+                        ${formatPrice(ticker.last, pricePrecision)}
                       </td>
                       <td className="py-3 text-right font-mono text-green-600">
-                        ${formatPrice(ticker.bid)}
+                        ${formatPrice(ticker.bid, pricePrecision)}
                       </td>
                       <td className="py-3 text-right font-mono text-red-600">
-                        ${formatPrice(ticker.ask)}
+                        ${formatPrice(ticker.ask, pricePrecision)}
                       </td>
                       <td className="py-3 text-right font-mono text-sm text-muted-foreground">
                         {ticker.spread.toFixed(3)}%

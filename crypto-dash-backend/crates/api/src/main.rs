@@ -1,10 +1,11 @@
+mod catalog;
 mod routes;
 mod state;
 mod ws;
 
 use anyhow::Result;
 use axum::{
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use crypto_dash_binance::BinanceAdapter;
@@ -68,6 +69,14 @@ async fn main() -> Result<()> {
         }
     }
 
+    // Load symbol metadata for all exchanges
+    info!("Loading symbol metadata for all exchanges...");
+    if let Err(e) = app_state.load_symbol_metadata().await {
+        tracing::warn!("Failed to load symbol metadata: {}. Continuing with fallback data.", e);
+    } else {
+        info!("Symbol metadata loaded successfully");
+    }
+
     // Build the application router
     let app = Router::new()
         // Health endpoints
@@ -76,6 +85,7 @@ async fn main() -> Result<()> {
         // API routes
         .route("/api/exchanges", get(routes::list_exchanges))
         .route("/api/symbols", get(routes::list_symbols))
+        .route("/api/symbols/refresh", post(routes::refresh_symbols))
         // WebSocket endpoint
         .route("/ws", get(ws::websocket_handler))
         // Add middleware

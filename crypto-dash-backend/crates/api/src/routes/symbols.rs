@@ -15,9 +15,22 @@ pub struct SymbolsQuery {
 #[derive(Debug, Serialize)]
 pub struct SymbolResponse {
     pub exchange: String,
-    pub symbols: Vec<SymbolInfo>,
+    pub symbols: Vec<SymbolMetaDto>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct SymbolMetaDto {
+    pub symbol: String,
+    pub base: String,
+    pub quote: String,
+    pub display_name: String,
+    pub price_precision: u32,
+    pub tick_size: String,
+    pub min_qty: rust_decimal::Decimal,
+    pub step_size: rust_decimal::Decimal,
+}
+
+// Legacy SymbolInfo for backwards compatibility
 #[derive(Debug, Clone, Serialize)]
 pub struct SymbolInfo {
     pub symbol: String,
@@ -31,10 +44,42 @@ pub async fn list_symbols(
     Query(params): Query<SymbolsQuery>,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<SymbolResponse>>, StatusCode> {
-    let exchanges = state.get_exchange_info().await;
+    // Try to get symbols from the catalog first
+    let symbol_metas = state.get_symbol_meta(params.exchange.as_deref()).await;
     
-    // For now, provide a curated list of popular trading pairs
-    // In a real implementation, this would come from exchange APIs
+    if !symbol_metas.is_empty() {
+        // Group symbols by exchange
+        let mut response_map: HashMap<String, Vec<SymbolMetaDto>> = HashMap::new();
+        
+        for meta in symbol_metas {
+            let display_name = format!("{} / {}", meta.base, meta.quote);
+            let symbol_key = format!("{}-{}", meta.base, meta.quote);
+            
+            let dto = SymbolMetaDto {
+                symbol: symbol_key,
+                base: meta.base,
+                quote: meta.quote,
+                display_name,
+                price_precision: meta.price_precision,
+                tick_size: meta.tick_size,
+                min_qty: meta.min_qty,
+                step_size: meta.step_size,
+            };
+            
+            response_map.entry(meta.exchange.as_str().to_string())
+                .or_insert_with(Vec::new)
+                .push(dto);
+        }
+        
+        let response: Vec<SymbolResponse> = response_map.into_iter()
+            .map(|(exchange, symbols)| SymbolResponse { exchange, symbols })
+            .collect();
+            
+        return Ok(Json(response));
+    }
+    
+    // Fallback to curated list if no symbols are available
+    let exchanges = state.get_exchange_info().await;
     let popular_symbols = get_popular_symbols();
     
     let mut response = Vec::new();
@@ -42,24 +87,81 @@ pub async fn list_symbols(
     if let Some(exchange_filter) = params.exchange {
         // Return symbols for specific exchange
         if let Some(symbols) = popular_symbols.get(&exchange_filter) {
+            let symbol_dtos: Vec<SymbolMetaDto> = symbols.iter().map(|s| SymbolMetaDto {
+                symbol: s.symbol.clone(),
+                base: s.base.clone(),
+                quote: s.quote.clone(),
+                display_name: s.display_name.clone(),
+                price_precision: 2, // Default precision
+                tick_size: "0.01".to_string(),
+                min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
+                step_size: rust_decimal::Decimal::new(1, 3), // 0.001
+            }).collect();
+            
             response.push(SymbolResponse {
                 exchange: exchange_filter,
-                symbols: symbols.clone(),
+                symbols: symbol_dtos,
             });
         }
     } else {
         // Return symbols for all available exchanges
         for exchange in exchanges {
             if let Some(symbols) = popular_symbols.get(exchange.id.as_str()) {
+                let symbol_dtos: Vec<SymbolMetaDto> = symbols.iter().map(|s| SymbolMetaDto {
+                    symbol: s.symbol.clone(),
+                    base: s.base.clone(),
+                    quote: s.quote.clone(),
+                    display_name: s.display_name.clone(),
+                    price_precision: 2, // Default precision
+                    tick_size: "0.01".to_string(),
+                    min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
+                    step_size: rust_decimal::Decimal::new(1, 3), // 0.001
+                }).collect();
+                
                 response.push(SymbolResponse {
                     exchange: exchange.id.as_str().to_string(),
-                    symbols: symbols.clone(),
+                    symbols: symbol_dtos,
                 });
             }
         }
     }
     
     Ok(Json(response))
+}
+
+/// POST /api/symbols/refresh - Refresh symbol metadata for an exchange
+pub async fn refresh_symbols(
+    Query(params): Query<SymbolsQuery>,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    match params.exchange {
+        Some(exchange_name) => {
+            match state.refresh_exchange_symbols(&exchange_name).await {
+                Ok(_) => Ok(Json(serde_json::json!({
+                    "success": true,
+                    "message": format!("Symbols refreshed for {}", exchange_name)
+                }))),
+                Err(e) => {
+                    tracing::error!("Failed to refresh symbols for {}: {}", exchange_name, e);
+                    Err(StatusCode::INTERNAL_SERVER_ERROR)
+                }
+            }
+        }
+        None => {
+            // Refresh all exchanges
+            let exchanges = state.get_exchange_info().await;
+            for exchange in exchanges {
+                if let Err(e) = state.refresh_exchange_symbols(exchange.id.as_str()).await {
+                    tracing::warn!("Failed to refresh symbols for {}: {}", exchange.id.as_str(), e);
+                }
+            }
+            
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "message": "Symbols refresh initiated for all exchanges"
+            })))
+        }
+    }
 }
 
 fn get_popular_symbols() -> HashMap<String, Vec<SymbolInfo>> {
