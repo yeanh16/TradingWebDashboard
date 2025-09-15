@@ -60,8 +60,10 @@ struct BybitPriceFilter {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct BybitLotSizeFilter {
-    min_order_qty: String,
-    qty_step: String,
+    // Make these optional because Bybit responses may omit some fields
+    // (different markets / versions sometimes return slightly different keys).
+    min_order_qty: Option<String>,
+    qty_step: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -241,12 +243,14 @@ impl ExchangeCatalog {
                 
             let min_qty = symbol.lot_size_filter
                 .as_ref()
-                .and_then(|lsf| Decimal::from_str(&lsf.min_order_qty).ok())
+                .and_then(|lsf| lsf.min_order_qty.as_ref())
+                .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_else(|| Decimal::from_str("0.001").unwrap());
-                
+
             let step_size = symbol.lot_size_filter
                 .as_ref()
-                .and_then(|lsf| Decimal::from_str(&lsf.qty_step).ok())
+                .and_then(|lsf| lsf.qty_step.as_ref())
+                .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_else(|| Decimal::from_str("0.001").unwrap());
             
             let price_precision = precision_from_tick_size(&tick_size).unwrap_or(2);
