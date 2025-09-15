@@ -1,5 +1,6 @@
 use crypto_dash_core::model::{ExchangeId, Symbol, Ticker, OrderBookSnapshot};
 use dashmap::DashMap;
+use serde::{Serialize, Deserialize};
 use std::sync::Arc;
 use tracing::debug;
 
@@ -36,6 +37,30 @@ pub struct CacheHandle {
 }
 
 impl CacheHandle {
+    /// Store arbitrary data in the cache
+    pub async fn set<T>(&self, key: &str, value: &T) -> anyhow::Result<()>
+    where
+        T: Serialize,
+    {
+        let serialized = serde_json::to_string(value)?;
+        self.inner.generic_data.insert(key.to_string(), serialized);
+        debug!("Cached data for key: {}", key);
+        Ok(())
+    }
+
+    /// Get arbitrary data from the cache
+    pub async fn get<T>(&self, key: &str) -> anyhow::Result<Option<T>>
+    where
+        T: for<'de> Deserialize<'de>,
+    {
+        if let Some(entry) = self.inner.generic_data.get(key) {
+            let value: T = serde_json::from_str(&entry)?;
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Store a ticker in the cache
     pub async fn set_ticker(&self, ticker: Ticker) {
         let key = TickerKey::new(ticker.exchange.clone(), ticker.symbol.clone());
@@ -98,6 +123,7 @@ pub struct CacheStats {
 struct MemoryCacheInner {
     tickers: DashMap<TickerKey, Ticker>,
     orderbooks: DashMap<OrderBookKey, OrderBookSnapshot>,
+    generic_data: DashMap<String, String>, // JSON serialized data
 }
 
 impl MemoryCacheInner {
@@ -105,6 +131,7 @@ impl MemoryCacheInner {
         Self {
             tickers: DashMap::new(),
             orderbooks: DashMap::new(),
+            generic_data: DashMap::new(),
         }
     }
 }

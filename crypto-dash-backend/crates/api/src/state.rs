@@ -1,5 +1,6 @@
+use crate::catalog::ExchangeCatalog;
 use crypto_dash_cache::CacheHandle;
-use crypto_dash_core::model::ExchangeInfo;
+use crypto_dash_core::model::{ExchangeInfo, SymbolMeta};
 use crypto_dash_exchanges_common::ExchangeAdapter;
 use crypto_dash_stream_hub::HubHandle;
 use std::collections::HashMap;
@@ -13,14 +14,17 @@ pub struct AppState {
     #[allow(dead_code)]
     pub cache: CacheHandle,
     pub exchanges: HashMap<String, Arc<dyn ExchangeAdapter>>,
+    pub symbol_catalog: Arc<ExchangeCatalog>,
 }
 
 impl AppState {
     pub fn new(hub: HubHandle, cache: CacheHandle) -> Self {
+        let symbol_catalog = Arc::new(ExchangeCatalog::new(cache.clone()));
         Self {
             hub,
             cache,
             exchanges: HashMap::new(),
+            symbol_catalog,
         }
     }
 
@@ -49,5 +53,20 @@ impl AppState {
         }
         
         exchanges
+    }
+
+    /// Get symbol metadata from the catalog
+    pub async fn get_symbol_meta(&self, exchange: Option<&str>) -> Vec<SymbolMeta> {
+        self.symbol_catalog.get_symbols(exchange).await
+    }
+
+    /// Load all symbol metadata
+    pub async fn load_symbol_metadata(&self) -> anyhow::Result<()> {
+        self.symbol_catalog.load_all(&self.exchanges).await
+    }
+
+    /// Refresh symbol metadata for a specific exchange
+    pub async fn refresh_exchange_symbols(&self, exchange: &str) -> anyhow::Result<()> {
+        self.symbol_catalog.refresh_exchange(exchange).await
     }
 }

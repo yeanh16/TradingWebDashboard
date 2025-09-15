@@ -1,5 +1,7 @@
 use crate::model::{ExchangeId, Symbol};
 use std::collections::HashMap;
+use rust_decimal::Decimal;
+use anyhow::Result;
 
 /// Symbol normalization utilities
 pub struct SymbolMapper {
@@ -90,5 +92,105 @@ mod tests {
             mapper.to_canonical(&binance, "BTCUSDT"),
             Some(Symbol::new("BTC", "USDT"))
         );
+    }
+}
+
+/// Utility functions for symbol metadata normalization
+pub fn precision_from_tick_size(tick_size: &str) -> Result<u32> {
+    if tick_size == "0" || tick_size.is_empty() {
+        return Ok(0);
+    }
+    
+    if let Some(decimal_pos) = tick_size.find('.') {
+        let decimal_part = &tick_size[decimal_pos + 1..];
+        // Count trailing zeros to find the first non-zero digit
+        let trailing_zeros = decimal_part.chars()
+            .take_while(|&c| c == '0')
+            .count();
+        
+        // Find the first non-zero digit after decimal point
+        if let Some(first_non_zero) = decimal_part.chars()
+            .skip(trailing_zeros)
+            .find(|&c| c != '0') {
+            if first_non_zero == '1' {
+                // For tick sizes like "0.001", precision is the number of decimal places
+                Ok(decimal_part.len() as u32)
+            } else {
+                // For tick sizes like "0.5", precision is position of first non-zero + 1
+                Ok(trailing_zeros as u32 + 1)
+            }
+        } else {
+            Ok(decimal_part.len() as u32)
+        }
+    } else {
+        // No decimal point, precision is 0
+        Ok(0)
+    }
+}
+
+/// Normalize exchange symbol to canonical format
+pub fn normalize_symbol(exchange_symbol: &str, exchange: &ExchangeId) -> Symbol {
+    match exchange.as_str() {
+        "binance" => {
+            // Binance uses concatenated format like "BTCUSDT"
+            // This is a simple heuristic - in practice you'd use exchange API data
+            if exchange_symbol.ends_with("USDT") {
+                let base = &exchange_symbol[..exchange_symbol.len() - 4];
+                Symbol::new(base, "USDT")
+            } else if exchange_symbol.ends_with("BTC") {
+                let base = &exchange_symbol[..exchange_symbol.len() - 3];
+                Symbol::new(base, "BTC")
+            } else if exchange_symbol.ends_with("ETH") {
+                let base = &exchange_symbol[..exchange_symbol.len() - 3];
+                Symbol::new(base, "ETH")
+            } else {
+                // Fallback - try common patterns
+                Symbol::new(exchange_symbol, "USDT")
+            }
+        }
+        "bybit" => {
+            // Bybit also uses concatenated format
+            if exchange_symbol.ends_with("USDT") {
+                let base = &exchange_symbol[..exchange_symbol.len() - 4];
+                Symbol::new(base, "USDT")
+            } else if exchange_symbol.ends_with("BTC") {
+                let base = &exchange_symbol[..exchange_symbol.len() - 3];
+                Symbol::new(base, "BTC")
+            } else {
+                Symbol::new(exchange_symbol, "USDT")
+            }
+        }
+        _ => {
+            // Default fallback
+            Symbol::new(exchange_symbol, "USDT")
+        }
+    }
+}
+
+#[cfg(test)]
+mod normalization_tests {
+    use super::*;
+
+    #[test]
+    fn test_precision_from_tick_size() {
+        assert_eq!(precision_from_tick_size("0.001").unwrap(), 3);
+        assert_eq!(precision_from_tick_size("0.01").unwrap(), 2);
+        assert_eq!(precision_from_tick_size("0.1").unwrap(), 1);
+        assert_eq!(precision_from_tick_size("1").unwrap(), 0);
+        assert_eq!(precision_from_tick_size("0.5").unwrap(), 1);
+        assert_eq!(precision_from_tick_size("0.00001").unwrap(), 5);
+    }
+
+    #[test]
+    fn test_normalize_symbol() {
+        let binance = ExchangeId::from("binance");
+        
+        let symbol = normalize_symbol("BTCUSDT", &binance);
+        assert_eq!(symbol.base, "BTC");
+        assert_eq!(symbol.quote, "USDT");
+        
+        let symbol = normalize_symbol("ETHBTC", &binance);
+        assert_eq!(symbol.base, "ETH");
+        assert_eq!(symbol.quote, "BTC");
     }
 }
