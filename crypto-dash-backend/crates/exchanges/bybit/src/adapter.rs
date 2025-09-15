@@ -99,12 +99,14 @@ impl BybitAdapter {
         for channel in channels {
             match channel.channel_type {
                 ChannelType::Ticker => {
-                    let symbol = format!("{}{}", channel.symbol.base, channel.symbol.quote);
-                    topics.push(format!("tickers.{}", symbol));
+                    let exchange_symbol = format!("{}{}", channel.symbol.base, channel.symbol.quote);
+                    let canonical_symbol = channel.symbol.canonical();
+                    topics.push(format!("tickers.{}_{}", exchange_symbol, canonical_symbol));
                 }
                 ChannelType::OrderBook => {
-                    let symbol = format!("{}{}", channel.symbol.base, channel.symbol.quote);
-                    topics.push(format!("orderbook.1.{}", symbol));
+                    let exchange_symbol = format!("{}{}", channel.symbol.base, channel.symbol.quote);
+                    let canonical_symbol = channel.symbol.canonical();
+                    topics.push(format!("orderbook.1.{}_{}", exchange_symbol, canonical_symbol));
                 }
             }
         }
@@ -272,5 +274,73 @@ impl ExchangeAdapter for BybitAdapter {
 impl Default for BybitAdapter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crypto_dash_core::model::{Channel, ChannelType, ExchangeId, Symbol};
+
+    #[test]
+    fn test_format_subscription() {
+        let adapter = BybitAdapter::new();
+        
+        let channels = vec![
+            Channel {
+                channel_type: ChannelType::Ticker,
+                exchange: ExchangeId::from("bybit"),
+                symbol: Symbol::new("SOL", "USDT"),
+                depth: None,
+            },
+            Channel {
+                channel_type: ChannelType::Ticker,
+                exchange: ExchangeId::from("bybit"),
+                symbol: Symbol::new("BTC", "USDT"),
+                depth: None,
+            },
+        ];
+
+        let subscription = adapter.format_subscription(&channels).unwrap();
+        
+        // Verify the subscription contains the correct format
+        assert!(subscription.contains("tickers.SOLUSDT_SOL-USDT"));
+        assert!(subscription.contains("tickers.BTCUSDT_BTC-USDT"));
+        
+        // Parse and verify the JSON structure
+        let parsed: serde_json::Value = serde_json::from_str(&subscription).unwrap();
+        assert_eq!(parsed["op"], "subscribe");
+        
+        let args = parsed["args"].as_array().unwrap();
+        assert_eq!(args.len(), 2);
+        assert!(args.contains(&serde_json::Value::String("tickers.SOLUSDT_SOL-USDT".to_string())));
+        assert!(args.contains(&serde_json::Value::String("tickers.BTCUSDT_BTC-USDT".to_string())));
+    }
+
+    #[test]
+    fn test_format_subscription_orderbook() {
+        let adapter = BybitAdapter::new();
+        
+        let channels = vec![
+            Channel {
+                channel_type: ChannelType::OrderBook,
+                exchange: ExchangeId::from("bybit"),
+                symbol: Symbol::new("ETH", "USDT"),
+                depth: Some(50),
+            },
+        ];
+
+        let subscription = adapter.format_subscription(&channels).unwrap();
+        
+        // Verify the subscription contains the correct format for orderbook
+        assert!(subscription.contains("orderbook.1.ETHUSDT_ETH-USDT"));
+        
+        // Parse and verify the JSON structure
+        let parsed: serde_json::Value = serde_json::from_str(&subscription).unwrap();
+        assert_eq!(parsed["op"], "subscribe");
+        
+        let args = parsed["args"].as_array().unwrap();
+        assert_eq!(args.len(), 1);
+        assert!(args.contains(&serde_json::Value::String("orderbook.1.ETHUSDT_ETH-USDT".to_string())));
     }
 }
