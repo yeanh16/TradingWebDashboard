@@ -100,13 +100,13 @@ impl BybitAdapter {
             match channel.channel_type {
                 ChannelType::Ticker => {
                     let exchange_symbol = format!("{}{}", channel.symbol.base, channel.symbol.quote);
-                    let canonical_symbol = channel.symbol.canonical();
-                    topics.push(format!("tickers.{}_{}", exchange_symbol, canonical_symbol));
+                    let human_readable_symbol = format!("{}/{}", channel.symbol.base, channel.symbol.quote);
+                    topics.push(format!("tickers.{}_{}", exchange_symbol, human_readable_symbol));
                 }
                 ChannelType::OrderBook => {
                     let exchange_symbol = format!("{}{}", channel.symbol.base, channel.symbol.quote);
-                    let canonical_symbol = channel.symbol.canonical();
-                    topics.push(format!("orderbook.1.{}_{}", exchange_symbol, canonical_symbol));
+                    let human_readable_symbol = format!("{}/{}", channel.symbol.base, channel.symbol.quote);
+                    topics.push(format!("orderbook.1.{}_{}", exchange_symbol, human_readable_symbol));
                 }
             }
         }
@@ -303,9 +303,9 @@ mod tests {
 
         let subscription = adapter.format_subscription(&channels).unwrap();
         
-        // Verify the subscription contains the correct format
-        assert!(subscription.contains("tickers.SOLUSDT_SOL-USDT"));
-        assert!(subscription.contains("tickers.BTCUSDT_BTC-USDT"));
+        // Verify the subscription contains the correct format with slash separator
+        assert!(subscription.contains("tickers.SOLUSDT_SOL/USDT"));
+        assert!(subscription.contains("tickers.BTCUSDT_BTC/USDT"));
         
         // Parse and verify the JSON structure
         let parsed: serde_json::Value = serde_json::from_str(&subscription).unwrap();
@@ -313,8 +313,8 @@ mod tests {
         
         let args = parsed["args"].as_array().unwrap();
         assert_eq!(args.len(), 2);
-        assert!(args.contains(&serde_json::Value::String("tickers.SOLUSDT_SOL-USDT".to_string())));
-        assert!(args.contains(&serde_json::Value::String("tickers.BTCUSDT_BTC-USDT".to_string())));
+        assert!(args.contains(&serde_json::Value::String("tickers.SOLUSDT_SOL/USDT".to_string())));
+        assert!(args.contains(&serde_json::Value::String("tickers.BTCUSDT_BTC/USDT".to_string())));
     }
 
     #[test]
@@ -332,8 +332,8 @@ mod tests {
 
         let subscription = adapter.format_subscription(&channels).unwrap();
         
-        // Verify the subscription contains the correct format for orderbook
-        assert!(subscription.contains("orderbook.1.ETHUSDT_ETH-USDT"));
+        // Verify the subscription contains the correct format for orderbook with slash separator
+        assert!(subscription.contains("orderbook.1.ETHUSDT_ETH/USDT"));
         
         // Parse and verify the JSON structure
         let parsed: serde_json::Value = serde_json::from_str(&subscription).unwrap();
@@ -341,6 +341,6 @@ mod tests {
         
         let args = parsed["args"].as_array().unwrap();
         assert_eq!(args.len(), 1);
-        assert!(args.contains(&serde_json::Value::String("orderbook.1.ETHUSDT_ETH-USDT".to_string())));
+        assert!(args.contains(&serde_json::Value::String("orderbook.1.ETHUSDT_ETH/USDT".to_string())));
     }
 }
