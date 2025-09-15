@@ -30,6 +30,7 @@ impl AppState {
 
     pub fn add_exchange(&mut self, adapter: Arc<dyn ExchangeAdapter>) {
         let id = adapter.id().as_str().to_string();
+        tracing::info!("Adding exchange adapter: '{}' -> '{}'", adapter.id().as_str(), id);
         self.exchanges.insert(id, adapter);
     }
 

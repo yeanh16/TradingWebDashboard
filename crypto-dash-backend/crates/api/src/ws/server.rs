@@ -18,6 +18,7 @@ pub async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> Response {
+    info!("WebSocket upgrade request received");
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
@@ -76,12 +77,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                 
                 match serde_json::from_str::<ClientMessage>(&text) {
                     Ok(client_msg) => {
+                        debug!("Successfully parsed client message: {:?}", client_msg);
                         if let Err(e) = handle_client_message(client_msg, &state, &sender).await {
                             error!("Error handling client message: {}", e);
                         }
                     }
                     Err(e) => {
-                        warn!("Invalid message format from {}: {}", session_id, e);
+                        warn!("Invalid message format from {}: {} - Raw: {}", session_id, e, text);
                         let error_msg = StreamMessage::Error {
                             message: format!("Invalid message format: {}", e),
                         };
@@ -132,19 +134,25 @@ async fn handle_client_message(
         ClientMessage::Subscribe { channels } => {
             debug!("Subscribe request for {} channels", channels.len());
             
+            // Debug: Log the available exchanges
+            debug!("Available exchanges: {:?}", state.exchanges.keys().collect::<Vec<_>>());
+            
             // Group channels by exchange
             let mut exchanges_channels = std::collections::HashMap::new();
             for channel in &channels {
                 let exchange_id = channel.exchange.as_str().to_string();
+                debug!("Processing channel for exchange: '{}' (channel: {:?})", exchange_id, channel);
                 exchanges_channels.entry(exchange_id).or_insert_with(Vec::new).push(channel.clone());
             }
             
             let num_exchanges = exchanges_channels.len();
+            debug!("Grouped into {} exchanges: {:?}", num_exchanges, exchanges_channels.keys().collect::<Vec<_>>());
             
             // Subscribe to each exchange
             for (exchange_id, exchange_channels) in &exchanges_channels {
+                debug!("Looking up exchange adapter for: '{}'", exchange_id);
                 if let Some(adapter) = state.exchanges.get(exchange_id) {
-                    debug!("Subscribing to {} channels on {}", exchange_channels.len(), exchange_id);
+                    debug!("Found adapter for '{}', subscribing to {} channels", exchange_id, exchange_channels.len());
                     match adapter.subscribe(exchange_channels).await {
                         Ok(()) => {
                             info!("Successfully subscribed to {} channels on {}", exchange_channels.len(), exchange_id);
@@ -154,7 +162,7 @@ async fn handle_client_message(
                         }
                     }
                 } else {
-                    warn!("Unknown exchange: {}", exchange_id);
+                    warn!("Unknown exchange: '{}' (available: {:?})", exchange_id, state.exchanges.keys().collect::<Vec<_>>());
                 }
             }
 
