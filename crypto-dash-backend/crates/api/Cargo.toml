@@ -7,6 +7,10 @@ edition = "2021"
 name = "api"
 path = "src/main.rs"
 
+[lib]
+name = "crypto_dash_api"
+path = "src/lib.rs"
+
 [dependencies]
 crypto-dash-core = { path = "../core" }
 crypto-dash-stream-hub = { path = "../stream-hub" }

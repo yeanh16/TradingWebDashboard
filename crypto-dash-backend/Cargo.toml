@@ -8,6 +8,7 @@ members = [
     "crates/exchanges/common",
     "crates/exchanges/binance",
     "crates/exchanges/bybit",
+    "integration-tests",
 ]
 
 [workspace.dependencies]
@@ -31,6 +32,9 @@ async-trait = "0.1"
 futures = "0.3"
 url = "2.4"
 rand = "0.8"
+
+# Test dependencies
+tokio-test = "0.4"
 
 [profile.dev]
 debug = true

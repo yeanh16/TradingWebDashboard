@@ -1,3 +1,7 @@
+mod api_integration_tests;
+mod websocket_tests;
+mod edge_case_tests;
+
 use crypto_dash_binance::BinanceAdapter;
 use crypto_dash_bybit::BybitAdapter;
 use crypto_dash_cache::MemoryCache;
@@ -43,4 +47,49 @@ async fn test_channel_creation() {
     
     assert_eq!(channel.symbol.canonical(), "BTC-USDT");
     assert_eq!(channel.exchange.as_str(), "binance");
+}
+
+#[tokio::test]
+async fn test_system_integration() {
+    // Integration test that verifies the entire backend system works together
+    let stream_hub = StreamHub::new();
+    let hub_handle = stream_hub.start().await.expect("Failed to start stream hub");
+
+    let cache = MemoryCache::new();
+    let cache_handle = cache.start().await.expect("Failed to start cache");
+
+    // Create a subscriber before publishing
+    let mut receiver = hub_handle.subscribe_all().await;
+
+    // Create and start adapters
+    let binance_adapter = Arc::new(BinanceAdapter::new());
+    let _result = binance_adapter.start(hub_handle.clone(), cache_handle.clone()).await;
+
+    let bybit_adapter = Arc::new(BybitAdapter::new());
+    let bybit_result = bybit_adapter.start(hub_handle.clone(), cache_handle.clone()).await;
+    assert!(bybit_result.is_ok());
+
+    // Test the complete data flow
+    let symbol = Symbol::new("BTC", "USDT");
+    let ticker = crypto_dash_core::model::Ticker {
+        timestamp: chrono::Utc::now(),
+        exchange: ExchangeId::from("bybit"),
+        symbol: symbol.clone(),
+        bid: 50000.0,
+        ask: 50001.0,
+        last: 50000.5,
+        bid_size: 1.0,
+        ask_size: 1.0,
+    };
+
+    // Store in cache
+    cache_handle.store_ticker(ticker.clone()).await.expect("Failed to store ticker");
+
+    // Verify cache storage
+    let retrieved = cache_handle.get_ticker(&ExchangeId::from("bybit"), &symbol).await.expect("Failed to get ticker");
+    assert!(retrieved.is_some());
+    
+    let retrieved_ticker = retrieved.unwrap();
+    assert_eq!(retrieved_ticker.bid, 50000.0);
+    assert_eq!(retrieved_ticker.ask, 50001.0);
 }
