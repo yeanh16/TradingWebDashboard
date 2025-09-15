@@ -34,6 +34,8 @@ export default function HomePage() {
     // Use both exchanges - Binance has working mock data with current prices, Bybit for real data when available
     { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', display_name: 'Bitcoin / USDT' },
     { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', display_name: 'Ethereum / USDT' },
+    { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'bybit', display_name: 'Bitcoin / USDT' },
+    { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'bybit', display_name: 'Ethereum / USDT' },
   ])
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
