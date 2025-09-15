@@ -142,12 +142,13 @@ impl BybitAdapter {
 
             match serde_json::from_str::<BybitMessage>(&message) {
                 Ok(stream_message) => {
+                    debug!("Received Bybit message: {:?}", stream_message);
                     if let Err(e) = self.handle_message(stream_message).await {
                         error!("Failed to handle Bybit message: {}", e);
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to parse Bybit message: {} - Raw: {}", e, message);
+                    warn!("Failed to parse Bybit message: {} - Raw: {}", e, message);
                 }
             }
         }
@@ -193,26 +194,16 @@ impl ExchangeAdapter for BybitAdapter {
         *self.hub.lock().await = Some(hub.clone());
         *self.cache.lock().await = Some(cache.clone());
         
-        // For development/testing, force mock data usage to ensure consistent behavior
-        // In production, this should be controlled by a configuration flag
-        let force_mock_data = std::env::var("BYBIT_FORCE_MOCK").unwrap_or_else(|_| "true".to_string()) == "true";
-        
-        if force_mock_data {
-            warn!("Bybit configured to use mock data for development/testing. Set BYBIT_FORCE_MOCK=false for real data.");
-            self.start_mock_data(hub).await?;
-            *self.use_mock_data.lock().await = true;
-        } else {
-            // Try to connect to real WebSocket first
-            match self.try_real_connection().await {
-                Ok(()) => {
-                    info!("Bybit adapter connected to real WebSocket");
-                    *self.use_mock_data.lock().await = false;
-                }
-                Err(e) => {
-                    warn!("Failed to connect to real Bybit WebSocket: {}. Falling back to mock data.", e);
-                    self.start_mock_data(hub).await?;
-                    *self.use_mock_data.lock().await = true;
-                }
+        // Try to connect to real WebSocket first
+        match self.try_real_connection().await {
+            Ok(()) => {
+                info!("Bybit adapter connected to real WebSocket");
+                *self.use_mock_data.lock().await = false;
+            }
+            Err(e) => {
+                warn!("Failed to connect to real Bybit WebSocket: {}. Falling back to mock data.", e);
+                self.start_mock_data(hub).await?;
+                *self.use_mock_data.lock().await = true;
             }
         }
         
@@ -232,11 +223,12 @@ impl ExchangeAdapter for BybitAdapter {
         }
         
         let subscription = self.format_subscription(channels)?;
+        info!("Bybit subscription message: {}", subscription);
         
         let mut ws_guard = self.ws_client.lock().await;
         if let Some(ws_client) = ws_guard.as_mut() {
             ws_client.send_text(&subscription).await?;
-            debug!("Sent Bybit subscription: {}", subscription);
+            info!("Successfully sent Bybit subscription: {}", subscription);
         } else {
             return Err(anyhow!("WebSocket client not connected"));
         }
