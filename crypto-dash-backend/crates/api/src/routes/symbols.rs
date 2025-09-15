@@ -4,7 +4,6 @@ use axum::{
     response::Json,
 };
 use crate::state::AppState;
-use crypto_dash_core::model::SymbolMeta;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

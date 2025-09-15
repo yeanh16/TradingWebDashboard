@@ -62,9 +62,25 @@ export interface SymbolInfo {
   base: string
   quote: string
   display_name: string
+  price_precision?: number  // Optional for backwards compatibility
+  tick_size?: string       // Optional for backwards compatibility
+  min_qty?: number         // Optional for backwards compatibility
+  step_size?: number       // Optional for backwards compatibility
 }
 
 export interface SymbolResponse {
   exchange: string
   symbols: SymbolInfo[]
+}
+
+export interface SelectedTicker {
+  symbol: string
+  base: string
+  quote: string
+  exchange: string
+  display_name: string
+  price_precision?: number
+  tick_size?: string
+  min_qty?: number
+  step_size?: number
 }

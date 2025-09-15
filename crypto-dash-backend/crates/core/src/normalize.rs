@@ -1,6 +1,5 @@
 use crate::model::{ExchangeId, Symbol};
 use std::collections::HashMap;
-use rust_decimal::Decimal;
 use anyhow::Result;
 
 /// Symbol normalization utilities
