@@ -92,8 +92,8 @@ pub async fn list_symbols(
                 base: s.base.clone(),
                 quote: s.quote.clone(),
                 display_name: s.display_name.clone(),
-                price_precision: 2, // Default precision
-                tick_size: "0.01".to_string(),
+                price_precision: get_price_precision(&s.base, &s.quote),
+                tick_size: get_tick_size(&s.base, &s.quote),
                 min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
                 step_size: rust_decimal::Decimal::new(1, 3), // 0.001
             }).collect();
@@ -112,8 +112,8 @@ pub async fn list_symbols(
                     base: s.base.clone(),
                     quote: s.quote.clone(),
                     display_name: s.display_name.clone(),
-                    price_precision: 2, // Default precision
-                    tick_size: "0.01".to_string(),
+                    price_precision: get_price_precision(&s.base, &s.quote),
+                    tick_size: get_tick_size(&s.base, &s.quote),
                     min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
                     step_size: rust_decimal::Decimal::new(1, 3), // 0.001
                 }).collect();
@@ -212,4 +212,48 @@ fn get_popular_symbols() -> HashMap<String, Vec<SymbolInfo>> {
     symbols.insert("bybit".to_string(), symbol_infos);
     
     symbols
+}
+
+/// Get appropriate price precision based on base and quote assets
+fn get_price_precision(base: &str, quote: &str) -> u32 {
+    match quote {
+        "USDT" | "USDC" | "USD" | "BUSD" => {
+            match base {
+                // High-value coins get 2 decimal places
+                "BTC" => 2,
+                // Medium-value coins get 2-3 decimal places
+                "ETH" | "BNB" | "SOL" | "ADA" | "DOT" | "AVAX" | "MATIC" | "LINK" | "UNI" => 2,
+                // Lower-value coins get 4-6 decimal places
+                "XRP" | "DOGE" | "SHIB" | "TRX" | "VET" | "HOT" => 4,
+                // Very low-value coins get 6+ decimal places
+                _ => 6,
+            }
+        },
+        "BTC" => {
+            // BTC pairs typically have 6-8 decimal places
+            8
+        },
+        "ETH" => {
+            // ETH pairs typically have 6-8 decimal places 
+            6
+        },
+        _ => 6, // Default for other quote currencies
+    }
+}
+
+/// Get appropriate tick size based on base and quote assets
+fn get_tick_size(base: &str, quote: &str) -> String {
+    match quote {
+        "USDT" | "USDC" | "USD" | "BUSD" => {
+            match base {
+                "BTC" => "0.01".to_string(),
+                "ETH" | "BNB" | "SOL" | "ADA" | "DOT" | "AVAX" | "MATIC" | "LINK" | "UNI" => "0.01".to_string(),
+                "XRP" | "DOGE" | "SHIB" | "TRX" | "VET" | "HOT" => "0.0001".to_string(),
+                _ => "0.000001".to_string(),
+            }
+        },
+        "BTC" => "0.00000001".to_string(), // 1 satoshi
+        "ETH" => "0.000001".to_string(),
+        _ => "0.000001".to_string(),
+    }
 }

@@ -140,9 +140,17 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
     return () => clearTimeout(timer)
   }, [])
 
-  const formatPrice = (price: number, decimals?: number) => {
+  const formatPrice = (price: number | string, decimals?: number) => {
+    // Convert string to number if needed
+    const numericPrice = typeof price === 'string' ? parseFloat(price) : price
+    
+    // Handle invalid numbers
+    if (isNaN(numericPrice)) {
+      return '0.00'
+    }
+    
     const precision = decimals ?? 2;
-    return price.toLocaleString('en-US', {
+    return numericPrice.toLocaleString('en-US', {
       minimumFractionDigits: precision,
       maximumFractionDigits: precision,
     })
@@ -227,6 +235,8 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
                   
                   // Use price precision from metadata or default to 2
                   const pricePrecision = selectedTicker?.price_precision ?? 2
+                  
+
                   
                   return (
                     <tr 

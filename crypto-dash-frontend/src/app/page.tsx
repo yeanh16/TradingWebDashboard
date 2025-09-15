@@ -7,20 +7,12 @@ import { TickerSelector } from '@/components/TickerSelector'
 import { LatencyBadge } from '@/components/LatencyBadge'
 import { useWebSocket } from '@/lib/useWebSocket'
 import { apiClient } from '@/lib/api'
-import { Channel } from '@/lib/types'
+import { Channel, SelectedTicker } from '@/lib/types'
 
 interface Exchange {
   id: string
   name: string
   status: 'online' | 'offline' | 'maintenance'
-}
-
-interface SelectedTicker {
-  symbol: string
-  base: string
-  quote: string
-  exchange: string
-  display_name: string
 }
 
 const MOCK_EXCHANGES: Exchange[] = [
@@ -32,8 +24,28 @@ export default function HomePage() {
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance', 'bybit'])
   const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>([
     // Use both exchanges - Binance has working mock data with current prices, Bybit for real data when available
-    { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', display_name: 'Bitcoin / USDT' },
-    { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', display_name: 'Ethereum / USDT' },
+    { 
+      symbol: 'BTC-USDT', 
+      base: 'BTC', 
+      quote: 'USDT', 
+      exchange: 'binance', 
+      display_name: 'Bitcoin / USDT',
+      price_precision: 2,
+      tick_size: '0.01',
+      min_qty: 0.001,
+      step_size: 0.001
+    },
+    { 
+      symbol: 'ETH-USDT', 
+      base: 'ETH', 
+      quote: 'USDT', 
+      exchange: 'binance', 
+      display_name: 'Ethereum / USDT',
+      price_precision: 2,
+      tick_size: '0.01', 
+      min_qty: 0.001,
+      step_size: 0.001
+    },
   ])
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
