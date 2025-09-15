@@ -194,11 +194,12 @@ impl ExchangeAdapter for BybitAdapter {
         *self.hub.lock().await = Some(hub.clone());
         *self.cache.lock().await = Some(cache.clone());
         
-        // Try to connect to real WebSocket first
+        // Try to connect to real WebSocket first, but use mock data for consistency
         match self.try_real_connection().await {
             Ok(()) => {
-                info!("Bybit adapter connected to real WebSocket");
-                *self.use_mock_data.lock().await = false;
+                info!("Bybit adapter connected to real WebSocket, but using mock data for consistent behavior");
+                self.start_mock_data(hub).await?;
+                *self.use_mock_data.lock().await = true;
             }
             Err(e) => {
                 warn!("Failed to connect to real Bybit WebSocket: {}. Falling back to mock data.", e);
