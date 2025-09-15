@@ -142,12 +142,13 @@ impl BybitAdapter {
 
             match serde_json::from_str::<BybitMessage>(&message) {
                 Ok(stream_message) => {
+                    debug!("Received Bybit message: {:?}", stream_message);
                     if let Err(e) = self.handle_message(stream_message).await {
                         error!("Failed to handle Bybit message: {}", e);
                     }
                 }
                 Err(e) => {
-                    debug!("Failed to parse Bybit message: {} - Raw: {}", e, message);
+                    warn!("Failed to parse Bybit message: {} - Raw: {}", e, message);
                 }
             }
         }
@@ -222,11 +223,12 @@ impl ExchangeAdapter for BybitAdapter {
         }
         
         let subscription = self.format_subscription(channels)?;
+        info!("Bybit subscription message: {}", subscription);
         
         let mut ws_guard = self.ws_client.lock().await;
         if let Some(ws_client) = ws_guard.as_mut() {
             ws_client.send_text(&subscription).await?;
-            debug!("Sent Bybit subscription: {}", subscription);
+            info!("Successfully sent Bybit subscription: {}", subscription);
         } else {
             return Err(anyhow!("WebSocket client not connected"));
         }
