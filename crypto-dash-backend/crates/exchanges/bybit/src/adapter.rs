@@ -227,10 +227,30 @@ impl ExchangeAdapter for BybitAdapter {
         
         let mut ws_guard = self.ws_client.lock().await;
         if let Some(ws_client) = ws_guard.as_mut() {
-            ws_client.send_text(&subscription).await?;
-            info!("Successfully sent Bybit subscription: {}", subscription);
+            match ws_client.send_text(&subscription).await {
+                Ok(()) => {
+                    info!("Successfully sent Bybit subscription: {}", subscription);
+                }
+                Err(e) => {
+                    error!("Failed to send Bybit subscription, connection may be broken: {}", e);
+                    // Clear the broken connection so future attempts can detect the issue
+                    *ws_guard = None;
+                    warn!("Cleared broken Bybit WebSocket connection, switching to mock data");
+                    // Switch to mock data as fallback
+                    *self.use_mock_data.lock().await = true;
+                    if let Some(hub) = &*self.hub.lock().await {
+                        self.start_mock_data(hub.clone()).await?;
+                        info!("Bybit: Switched to mock data due to connection failure");
+                    }
+                }
+            }
         } else {
-            return Err(anyhow!("WebSocket client not connected"));
+            warn!("Bybit WebSocket client not connected, switching to mock data");
+            *self.use_mock_data.lock().await = true;
+            if let Some(hub) = &*self.hub.lock().await {
+                self.start_mock_data(hub.clone()).await?;
+                info!("Bybit: Using mock data for subscription");
+            }
         }
         
         Ok(())
