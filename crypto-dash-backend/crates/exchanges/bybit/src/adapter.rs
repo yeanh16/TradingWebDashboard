@@ -93,22 +93,33 @@ impl BybitAdapter {
 
     async fn handle_ticker(&self, ticker: BybitTicker, timestamp_ms: u64) -> Result<()> {
         let symbol = self.parse_symbol(&ticker.symbol)?;
+
         let timestamp = crypto_dash_core::time::from_millis(timestamp_ms as i64)
             .ok_or_else(|| anyhow!("Invalid timestamp: {}", timestamp_ms))?;
 
         let bid_price = ticker.bid_price.as_deref().unwrap_or(&ticker.last_price);
+
         let ask_price = ticker.ask_price.as_deref().unwrap_or(&ticker.last_price);
+
         let bid_size = ticker.bid_size.as_deref().unwrap_or("0");
+
         let ask_size = ticker.ask_size.as_deref().unwrap_or("0");
 
         let normalized_ticker = Ticker {
             timestamp,
+
             exchange: self.id(),
+
             symbol: symbol.clone(),
+
             bid: Decimal::from_str(bid_price)?,
+
             ask: Decimal::from_str(ask_price)?,
+
             last: Decimal::from_str(&ticker.last_price)?,
+
             bid_size: Decimal::from_str(bid_size)?,
+
             ask_size: Decimal::from_str(ask_size)?,
         };
 
@@ -118,6 +129,7 @@ impl BybitAdapter {
 
         if let Some(hub) = &*self.hub.lock().await {
             let topic = Topic::ticker(self.id(), symbol);
+
             hub.publish(&topic, StreamMessage::Ticker(normalized_ticker))
                 .await;
         }
@@ -141,7 +153,7 @@ impl BybitAdapter {
         }
     }
 
-    fn format_subscription(&self, channels: &[Channel]) -> Result<String> {
+    fn topics_from_channels(&self, channels: &[Channel]) -> Vec<String> {
         let mut topics = Vec::new();
 
         for channel in channels {
@@ -160,6 +172,12 @@ impl BybitAdapter {
             }
         }
 
+        topics
+    }
+
+    fn format_subscription(&self, channels: &[Channel]) -> Result<String> {
+        let topics = self.topics_from_channels(channels);
+
         let subscription = serde_json::json!({
 
 
@@ -175,6 +193,26 @@ impl BybitAdapter {
         });
 
         Ok(subscription.to_string())
+    }
+
+    fn format_unsubscription(&self, channels: &[Channel]) -> Result<String> {
+        let topics = self.topics_from_channels(channels);
+
+        let unsubscription = serde_json::json!({
+
+
+
+            "op": "unsubscribe",
+
+
+
+            "args": topics
+
+
+
+        });
+
+        Ok(unsubscription.to_string())
     }
 
     async fn listen_for_messages(&self, ws_client: Arc<WsClient>) -> Result<()> {
@@ -309,19 +347,29 @@ impl ExchangeAdapter for BybitAdapter {
     async fn subscribe(&self, channels: &[Channel]) -> Result<()> {
         info!("Subscribing to {} Bybit channels", channels.len());
 
+        if channels.is_empty() {
+            debug!("No Bybit channels to subscribe");
+
+            return Ok(());
+        }
+
         let use_mock = *self.use_mock_data.lock().await;
 
         if use_mock {
             info!("Using mock data for Bybit - subscription request acknowledged");
+
             // Mock data generator is already running, just acknowledge the subscription
+
             return Ok(());
         }
 
         let subscription = self.format_subscription(channels)?;
+
         info!("Bybit subscription message: {}", subscription);
 
         let ws_client = {
             let ws_guard = self.ws_client.lock().await;
+
             ws_guard.clone()
         };
 
@@ -330,33 +378,44 @@ impl ExchangeAdapter for BybitAdapter {
                 Ok(()) => {
                     info!("Successfully sent Bybit subscription: {}", subscription);
                 }
+
                 Err(e) => {
                     error!(
                         "Failed to send Bybit subscription, connection may be broken: {}",
                         e
                     );
+
                     {
                         let mut ws_guard = self.ws_client.lock().await;
+
                         if let Some(current) = ws_guard.as_ref() {
                             if Arc::ptr_eq(current, &ws_client) {
                                 *ws_guard = None;
                             }
                         }
                     }
+
                     warn!("Cleared broken Bybit WebSocket connection, switching to mock data");
+
                     // Switch to mock data as fallback
+
                     *self.use_mock_data.lock().await = true;
+
                     if let Some(hub) = &*self.hub.lock().await {
                         self.start_mock_data(hub.clone()).await?;
+
                         info!("Bybit: Switched to mock data due to connection failure");
                     }
                 }
             }
         } else {
             warn!("Bybit WebSocket client not connected, switching to mock data");
+
             *self.use_mock_data.lock().await = true;
+
             if let Some(hub) = &*self.hub.lock().await {
                 self.start_mock_data(hub.clone()).await?;
+
                 info!("Bybit: Using mock data for subscription");
             }
         }
@@ -366,6 +425,45 @@ impl ExchangeAdapter for BybitAdapter {
 
     async fn unsubscribe(&self, channels: &[Channel]) -> Result<()> {
         info!("Unsubscribing from {} Bybit channels", channels.len());
+
+        if channels.is_empty() {
+            debug!("No Bybit channels to unsubscribe");
+            return Ok(());
+        }
+
+        let use_mock = *self.use_mock_data.lock().await;
+
+        if use_mock {
+            info!("Using mock data for Bybit - unsubscribe acknowledged");
+            return Ok(());
+        }
+
+        let unsubscription = self.format_unsubscription(channels)?;
+        info!("Bybit unsubscription message: {}", unsubscription);
+
+        let ws_client = {
+            let ws_guard = self.ws_client.lock().await;
+            ws_guard.clone()
+        };
+
+        if let Some(ws_client) = ws_client {
+            match ws_client.send_text(&unsubscription).await {
+                Ok(()) => {
+                    info!("Successfully sent Bybit unsubscription: {}", unsubscription);
+                }
+                Err(e) => {
+                    error!("Failed to send Bybit unsubscription: {}", e);
+                    let mut ws_guard = self.ws_client.lock().await;
+                    if let Some(current) = ws_guard.as_ref() {
+                        if Arc::ptr_eq(current, &ws_client) {
+                            *ws_guard = None;
+                        }
+                    }
+                }
+            }
+        } else {
+            warn!("Bybit WebSocket client not connected, unable to unsubscribe");
+        }
 
         Ok(())
     }

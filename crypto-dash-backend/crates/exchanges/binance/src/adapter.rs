@@ -1,7 +1,11 @@
 use crate::types::{Binance24hrTicker, BinanceOrderBook, BinanceStreamMessage, BinanceTicker};
+
 use anyhow::{anyhow, Result};
+
 use async_trait::async_trait;
+
 use crypto_dash_cache::CacheHandle;
+
 use crypto_dash_core::{
     model::{
         Channel, ChannelType, ExchangeId, OrderBookSnapshot, PriceLevel, StreamMessage, Symbol,
@@ -9,14 +13,23 @@ use crypto_dash_core::{
     },
     time::from_millis,
 };
+
 use crypto_dash_exchanges_common::{ExchangeAdapter, MockDataGenerator, WsClient};
+
 use crypto_dash_stream_hub::{HubHandle, Topic};
+
 use rust_decimal::Decimal;
+
 use std::str::FromStr;
+
 use std::sync::Arc;
+
 use tokio::sync::Mutex;
+
 use tokio_tungstenite::tungstenite::Message;
+
 use tracing::{debug, error, info, warn};
+
 const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/ws";
 
 #[derive(Clone)]
@@ -227,6 +240,7 @@ impl BinanceAdapter {
 
         if binance_symbol.ends_with("USDT") {
             let base = &binance_symbol[..binance_symbol.len() - 4];
+
             Ok(Symbol::new(base, "USDT"))
         } else if binance_symbol.ends_with("BTC") {
             let base = &binance_symbol[..binance_symbol.len() - 3];
@@ -241,7 +255,7 @@ impl BinanceAdapter {
         }
     }
 
-    fn format_subscription(&self, channels: &[Channel]) -> Result<String> {
+    fn streams_from_channels(&self, channels: &[Channel]) -> Vec<String> {
         let mut streams = Vec::new();
 
         for channel in channels {
@@ -264,17 +278,55 @@ impl BinanceAdapter {
             }
         }
 
+        streams
+    }
+
+    fn format_subscription(&self, channels: &[Channel]) -> Result<String> {
+        let streams = self.streams_from_channels(channels);
+
         let subscription = serde_json::json!({
+
+
 
             "method": "SUBSCRIBE",
 
+
+
             "params": streams,
 
+
+
             "id": 1
+
+
 
         });
 
         Ok(subscription.to_string())
+    }
+
+    fn format_unsubscription(&self, channels: &[Channel]) -> Result<String> {
+        let streams = self.streams_from_channels(channels);
+
+        let unsubscription = serde_json::json!({
+
+
+
+            "method": "UNSUBSCRIBE",
+
+
+
+            "params": streams,
+
+
+
+            "id": 1
+
+
+
+        });
+
+        Ok(unsubscription.to_string())
     }
 
     async fn listen_for_messages(&self, ws_client: Arc<WsClient>) -> Result<()> {
@@ -326,16 +378,21 @@ impl BinanceAdapter {
             "Attempting to connect to Binance WebSocket: {}",
             BINANCE_WS_URL
         );
+
         let ws_client = Arc::new(WsClient::new(BINANCE_WS_URL));
+
         ws_client.connect().await?;
+
         debug!("Binance WebSocket handshake successful");
 
         {
             let mut guard = self.ws_client.lock().await;
+
             *guard = Some(ws_client.clone());
         }
 
         let adapter = self.clone();
+
         let listener_client = ws_client.clone();
 
         tokio::spawn(async move {
@@ -405,6 +462,12 @@ impl ExchangeAdapter for BinanceAdapter {
     async fn subscribe(&self, channels: &[Channel]) -> Result<()> {
         info!("Subscribing to {} Binance channels", channels.len());
 
+        if channels.is_empty() {
+            debug!("No Binance channels to subscribe");
+
+            return Ok(());
+        }
+
         let use_mock = *self.use_mock_data.lock().await;
 
         if use_mock {
@@ -436,6 +499,32 @@ impl ExchangeAdapter for BinanceAdapter {
 
     async fn unsubscribe(&self, channels: &[Channel]) -> Result<()> {
         info!("Unsubscribing from {} Binance channels", channels.len());
+
+        if channels.is_empty() {
+            debug!("No Binance channels to unsubscribe");
+            return Ok(());
+        }
+
+        let use_mock = *self.use_mock_data.lock().await;
+
+        if use_mock {
+            info!("Using mock data for Binance - unsubscribe acknowledged");
+            return Ok(());
+        }
+
+        let unsubscription = self.format_unsubscription(channels)?;
+
+        let ws_client = {
+            let ws_guard = self.ws_client.lock().await;
+            ws_guard.clone()
+        };
+
+        if let Some(ws_client) = ws_client {
+            ws_client.send_text(&unsubscription).await?;
+            debug!("Sent Binance unsubscription: {}", unsubscription);
+        } else {
+            return Err(anyhow!("WebSocket client not connected"));
+        }
 
         Ok(())
     }
