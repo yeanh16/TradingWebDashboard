@@ -137,6 +137,40 @@ impl BybitAdapter {
         Ok(())
     }
 
+    async fn clear_ws_if_current(&self, ws_client: &Arc<WsClient>) -> bool {
+        let mut ws_guard = self.ws_client.lock().await;
+        if let Some(current) = ws_guard.as_ref() {
+            if Arc::ptr_eq(current, ws_client) {
+                *ws_guard = None;
+                return true;
+            }
+        }
+        false
+    }
+
+    async fn reconnect_and_send(&self, message: &str) -> Result<()> {
+        match self.try_real_connection().await {
+            Ok(()) => {
+                info!("Bybit: Reconnected WebSocket, resending subscription");
+                let ws_client = {
+                    let ws_guard = self.ws_client.lock().await;
+                    ws_guard.clone()
+                };
+
+                if let Some(client) = ws_client {
+                    client.send_text(message).await?;
+                    info!("Bybit: Subscription sent after reconnect");
+                    Ok(())
+                } else {
+                    Err(anyhow!(
+                        "Bybit WebSocket client unavailable after reconnect"
+                    ))
+                }
+            }
+            Err(e) => Err(e),
+        }
+    }
+
     fn parse_symbol(&self, bybit_symbol: &str) -> Result<Symbol> {
         // Bybit uses format like BTCUSDT
 
@@ -349,7 +383,6 @@ impl ExchangeAdapter for BybitAdapter {
 
         if channels.is_empty() {
             debug!("No Bybit channels to subscribe");
-
             return Ok(());
         }
 
@@ -357,19 +390,15 @@ impl ExchangeAdapter for BybitAdapter {
 
         if use_mock {
             info!("Using mock data for Bybit - subscription request acknowledged");
-
             // Mock data generator is already running, just acknowledge the subscription
-
             return Ok(());
         }
 
         let subscription = self.format_subscription(channels)?;
-
         info!("Bybit subscription message: {}", subscription);
 
         let ws_client = {
             let ws_guard = self.ws_client.lock().await;
-
             ws_guard.clone()
         };
 
@@ -378,46 +407,29 @@ impl ExchangeAdapter for BybitAdapter {
                 Ok(()) => {
                     info!("Successfully sent Bybit subscription: {}", subscription);
                 }
-
                 Err(e) => {
                     error!(
                         "Failed to send Bybit subscription, connection may be broken: {}",
                         e
                     );
 
-                    {
-                        let mut ws_guard = self.ws_client.lock().await;
-
-                        if let Some(current) = ws_guard.as_ref() {
-                            if Arc::ptr_eq(current, &ws_client) {
-                                *ws_guard = None;
-                            }
-                        }
+                    let cleared = self.clear_ws_if_current(&ws_client).await;
+                    if cleared {
+                        warn!("Cleared broken Bybit WebSocket connection, attempting reconnect");
                     }
 
-                    warn!("Cleared broken Bybit WebSocket connection, switching to mock data");
-
-                    // Switch to mock data as fallback
-
-                    *self.use_mock_data.lock().await = true;
-
-                    if let Some(hub) = &*self.hub.lock().await {
-                        self.start_mock_data(hub.clone()).await?;
-
-                        info!("Bybit: Switched to mock data due to connection failure");
+                    if let Err(reconnect_err) = self.reconnect_and_send(&subscription).await {
+                        error!(
+                            "Failed to resend Bybit subscription after reconnect: {}",
+                            reconnect_err
+                        );
+                        return Err(reconnect_err);
                     }
                 }
             }
         } else {
-            warn!("Bybit WebSocket client not connected, switching to mock data");
-
-            *self.use_mock_data.lock().await = true;
-
-            if let Some(hub) = &*self.hub.lock().await {
-                self.start_mock_data(hub.clone()).await?;
-
-                info!("Bybit: Using mock data for subscription");
-            }
+            warn!("Bybit WebSocket client not connected, attempting to reconnect");
+            self.reconnect_and_send(&subscription).await?;
         }
 
         Ok(())
