@@ -36,6 +36,11 @@ impl HubHandle {
     }
 
     /// Get the number of subscribers for a topic
+    /// Get the number of global subscribers
+    pub fn global_subscriber_count(&self) -> usize {
+        self.inner.global_sender.receiver_count()
+    }
+
     pub fn subscriber_count(&self, topic: &Topic) -> usize {
         self.inner
             .topics

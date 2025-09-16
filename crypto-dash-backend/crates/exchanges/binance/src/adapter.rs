@@ -1,4 +1,4 @@
-use crate::types::{Binance24hrTicker, BinanceOrderBook, BinanceStreamMessage, BinanceTicker};
+use crate::types::{BinanceOrderBook, BinanceStreamMessage, BinanceTicker};
 
 use anyhow::{anyhow, Result};
 
@@ -11,7 +11,7 @@ use crypto_dash_core::{
         Channel, ChannelType, ExchangeId, OrderBookSnapshot, PriceLevel, StreamMessage, Symbol,
         Ticker,
     },
-    time::from_millis,
+    time::{from_millis, now, to_millis},
 };
 
 use crypto_dash_exchanges_common::{ExchangeAdapter, MockDataGenerator, WsClient};
@@ -63,16 +63,16 @@ impl BinanceAdapter {
 
     async fn handle_message(&self, message: BinanceStreamMessage) -> Result<()> {
         match message {
-            BinanceStreamMessage::Ticker { stream: _, data } => {
+            BinanceStreamMessage::StreamTicker { stream: _, data } => {
+                self.handle_ticker(data).await?;
+            }
+
+            BinanceStreamMessage::DirectTicker(data) => {
                 self.handle_ticker(data).await?;
             }
 
             BinanceStreamMessage::OrderBook { stream, data } => {
                 self.handle_orderbook(&stream, data).await?;
-            }
-
-            BinanceStreamMessage::DirectTicker24hr(ticker_24hr) => {
-                self.handle_24hr_ticker(ticker_24hr).await?;
             }
 
             BinanceStreamMessage::Error { error, .. } => {
@@ -83,53 +83,44 @@ impl BinanceAdapter {
         Ok(())
     }
 
-    async fn handle_ticker(&self, ticker: BinanceTicker) -> Result<()> {
-        let symbol = self.parse_symbol(&ticker.s)?;
+    async fn disconnect_if_no_subscribers(&self, topic: &Topic) -> Result<()> {
+        let should_disconnect = {
+            let hub_guard = self.hub.lock().await;
 
-        let timestamp = from_millis(ticker.event_time)
-            .ok_or_else(|| anyhow!("Invalid timestamp: {}", ticker.event_time))?;
-
-        let normalized_ticker = Ticker {
-            timestamp,
-
-            exchange: self.id(),
-
-            symbol: symbol.clone(),
-
-            bid: Decimal::from_str(&ticker.b)?,
-
-            ask: Decimal::from_str(&ticker.a)?,
-
-            last: Decimal::from_str(&ticker.c)?,
-
-            bid_size: Decimal::from_str(&ticker.B)?,
-
-            ask_size: Decimal::from_str(&ticker.A)?,
+            if let Some(hub) = hub_guard.as_ref() {
+                hub.global_subscriber_count() == 0 && hub.subscriber_count(topic) == 0
+            } else {
+                false
+            }
         };
 
-        // Cache the ticker
+        if should_disconnect {
+            let mut ws_guard = self.ws_client.lock().await;
 
-        if let Some(cache) = &*self.cache.lock().await {
-            cache.set_ticker(normalized_ticker.clone()).await;
-        }
+            if let Some(client) = ws_guard.take() {
+                info!("Binance: No active subscribers, closing WebSocket connection");
 
-        // Publish to stream hub
-
-        if let Some(hub) = &*self.hub.lock().await {
-            let topic = Topic::ticker(self.id(), symbol);
-
-            hub.publish(&topic, StreamMessage::Ticker(normalized_ticker))
-                .await;
+                client.close().await?;
+            }
         }
 
         Ok(())
     }
 
-    async fn handle_24hr_ticker(&self, ticker: Binance24hrTicker) -> Result<()> {
+    async fn handle_ticker(&self, ticker: BinanceTicker) -> Result<()> {
         let symbol = self.parse_symbol(&ticker.s)?;
 
-        let timestamp = from_millis(ticker.event_time)
-            .ok_or_else(|| anyhow!("Invalid timestamp: {}", ticker.event_time))?;
+        let event_millis = ticker
+            .event_time
+            .or(ticker.statistics_close_time)
+            .unwrap_or_else(|| to_millis(now()));
+
+        let timestamp = from_millis(event_millis)
+            .ok_or_else(|| anyhow!("Invalid timestamp: {}", event_millis))?;
+
+        let bid_size = ticker.best_bid_qty.as_deref().unwrap_or("0");
+
+        let ask_size = ticker.best_ask_qty.as_deref().unwrap_or("0");
 
         let normalized_ticker = Ticker {
             timestamp,
@@ -144,27 +135,23 @@ impl BinanceAdapter {
 
             last: Decimal::from_str(&ticker.c)?,
 
-            bid_size: Decimal::from_str(&ticker.best_bid_qty)?,
+            bid_size: Decimal::from_str(bid_size)?,
 
-            ask_size: Decimal::from_str(&ticker.best_ask_qty)?,
+            ask_size: Decimal::from_str(ask_size)?,
         };
-
-        // Cache the ticker
 
         if let Some(cache) = &*self.cache.lock().await {
             cache.set_ticker(normalized_ticker.clone()).await;
         }
 
-        // Publish to stream hub
+        let topic = Topic::ticker(self.id(), symbol);
 
         if let Some(hub) = &*self.hub.lock().await {
-            let topic = Topic::ticker(self.id(), symbol);
-
             hub.publish(&topic, StreamMessage::Ticker(normalized_ticker))
                 .await;
         }
 
-        debug!("Processed 24hr ticker for {}: last={}", ticker.s, ticker.c);
+        self.disconnect_if_no_subscribers(&topic).await?;
 
         Ok(())
     }
@@ -214,23 +201,21 @@ impl BinanceAdapter {
             checksum: None,
         };
 
-        // Cache the orderbook
-
         if let Some(cache) = &*self.cache.lock().await {
             cache.set_orderbook(normalized_orderbook.clone()).await;
         }
 
-        // Publish to stream hub
+        let topic = Topic::orderbook(self.id(), symbol);
 
         if let Some(hub) = &*self.hub.lock().await {
-            let topic = Topic::orderbook(self.id(), symbol);
-
             hub.publish(
                 &topic,
                 StreamMessage::OrderBookSnapshot(normalized_orderbook),
             )
             .await;
         }
+
+        self.disconnect_if_no_subscribers(&topic).await?;
 
         Ok(())
     }
@@ -286,19 +271,11 @@ impl BinanceAdapter {
 
         let subscription = serde_json::json!({
 
-
-
             "method": "SUBSCRIBE",
-
-
 
             "params": streams,
 
-
-
             "id": 1
-
-
 
         });
 
@@ -310,19 +287,11 @@ impl BinanceAdapter {
 
         let unsubscription = serde_json::json!({
 
-
-
             "method": "UNSUBSCRIBE",
-
-
 
             "params": streams,
 
-
-
             "id": 1
-
-
 
         });
 
@@ -502,6 +471,7 @@ impl ExchangeAdapter for BinanceAdapter {
 
         if channels.is_empty() {
             debug!("No Binance channels to unsubscribe");
+
             return Ok(());
         }
 
@@ -509,6 +479,7 @@ impl ExchangeAdapter for BinanceAdapter {
 
         if use_mock {
             info!("Using mock data for Binance - unsubscribe acknowledged");
+
             return Ok(());
         }
 
@@ -516,11 +487,13 @@ impl ExchangeAdapter for BinanceAdapter {
 
         let ws_client = {
             let ws_guard = self.ws_client.lock().await;
+
             ws_guard.clone()
         };
 
         if let Some(ws_client) = ws_client {
             ws_client.send_text(&unsubscription).await?;
+
             debug!("Sent Binance unsubscription: {}", unsubscription);
         } else {
             return Err(anyhow!("WebSocket client not connected"));

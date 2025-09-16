@@ -98,28 +98,18 @@ impl BybitAdapter {
             .ok_or_else(|| anyhow!("Invalid timestamp: {}", timestamp_ms))?;
 
         let bid_price = ticker.bid_price.as_deref().unwrap_or(&ticker.last_price);
-
         let ask_price = ticker.ask_price.as_deref().unwrap_or(&ticker.last_price);
-
         let bid_size = ticker.bid_size.as_deref().unwrap_or("0");
-
         let ask_size = ticker.ask_size.as_deref().unwrap_or("0");
 
         let normalized_ticker = Ticker {
             timestamp,
-
             exchange: self.id(),
-
             symbol: symbol.clone(),
-
             bid: Decimal::from_str(bid_price)?,
-
             ask: Decimal::from_str(ask_price)?,
-
             last: Decimal::from_str(&ticker.last_price)?,
-
             bid_size: Decimal::from_str(bid_size)?,
-
             ask_size: Decimal::from_str(ask_size)?,
         };
 
@@ -127,12 +117,14 @@ impl BybitAdapter {
             cache.set_ticker(normalized_ticker.clone()).await;
         }
 
-        if let Some(hub) = &*self.hub.lock().await {
-            let topic = Topic::ticker(self.id(), symbol);
+        let topic = Topic::ticker(self.id(), symbol);
 
+        if let Some(hub) = &*self.hub.lock().await {
             hub.publish(&topic, StreamMessage::Ticker(normalized_ticker))
                 .await;
         }
+
+        self.disconnect_if_no_subscribers(&topic).await?;
 
         Ok(())
     }
@@ -169,6 +161,27 @@ impl BybitAdapter {
             }
             Err(e) => Err(e),
         }
+    }
+
+    async fn disconnect_if_no_subscribers(&self, topic: &Topic) -> Result<()> {
+        let should_disconnect = {
+            let hub_guard = self.hub.lock().await;
+            if let Some(hub) = hub_guard.as_ref() {
+                hub.global_subscriber_count() == 0 && hub.subscriber_count(topic) == 0
+            } else {
+                false
+            }
+        };
+
+        if should_disconnect {
+            let mut ws_guard = self.ws_client.lock().await;
+            if let Some(client) = ws_guard.take() {
+                info!("Bybit: No active subscribers, closing WebSocket connection");
+                client.close().await?;
+            }
+        }
+
+        Ok(())
     }
 
     fn parse_symbol(&self, bybit_symbol: &str) -> Result<Symbol> {
@@ -216,11 +229,23 @@ impl BybitAdapter {
 
 
 
+
+
+
+
             "op": "subscribe",
 
 
 
+
+
+
+
             "args": topics
+
+
+
+
 
 
 
@@ -236,11 +261,23 @@ impl BybitAdapter {
 
 
 
+
+
+
+
             "op": "unsubscribe",
 
 
 
+
+
+
+
             "args": topics
+
+
+
+
 
 
 
@@ -383,6 +420,7 @@ impl ExchangeAdapter for BybitAdapter {
 
         if channels.is_empty() {
             debug!("No Bybit channels to subscribe");
+
             return Ok(());
         }
 
@@ -390,15 +428,19 @@ impl ExchangeAdapter for BybitAdapter {
 
         if use_mock {
             info!("Using mock data for Bybit - subscription request acknowledged");
+
             // Mock data generator is already running, just acknowledge the subscription
+
             return Ok(());
         }
 
         let subscription = self.format_subscription(channels)?;
+
         info!("Bybit subscription message: {}", subscription);
 
         let ws_client = {
             let ws_guard = self.ws_client.lock().await;
+
             ws_guard.clone()
         };
 
@@ -407,6 +449,7 @@ impl ExchangeAdapter for BybitAdapter {
                 Ok(()) => {
                     info!("Successfully sent Bybit subscription: {}", subscription);
                 }
+
                 Err(e) => {
                     error!(
                         "Failed to send Bybit subscription, connection may be broken: {}",
@@ -414,6 +457,7 @@ impl ExchangeAdapter for BybitAdapter {
                     );
 
                     let cleared = self.clear_ws_if_current(&ws_client).await;
+
                     if cleared {
                         warn!("Cleared broken Bybit WebSocket connection, attempting reconnect");
                     }
@@ -423,12 +467,14 @@ impl ExchangeAdapter for BybitAdapter {
                             "Failed to resend Bybit subscription after reconnect: {}",
                             reconnect_err
                         );
+
                         return Err(reconnect_err);
                     }
                 }
             }
         } else {
             warn!("Bybit WebSocket client not connected, attempting to reconnect");
+
             self.reconnect_and_send(&subscription).await?;
         }
 
@@ -440,6 +486,7 @@ impl ExchangeAdapter for BybitAdapter {
 
         if channels.is_empty() {
             debug!("No Bybit channels to unsubscribe");
+
             return Ok(());
         }
 
@@ -447,14 +494,17 @@ impl ExchangeAdapter for BybitAdapter {
 
         if use_mock {
             info!("Using mock data for Bybit - unsubscribe acknowledged");
+
             return Ok(());
         }
 
         let unsubscription = self.format_unsubscription(channels)?;
+
         info!("Bybit unsubscription message: {}", unsubscription);
 
         let ws_client = {
             let ws_guard = self.ws_client.lock().await;
+
             ws_guard.clone()
         };
 
@@ -463,9 +513,12 @@ impl ExchangeAdapter for BybitAdapter {
                 Ok(()) => {
                     info!("Successfully sent Bybit unsubscription: {}", unsubscription);
                 }
+
                 Err(e) => {
                     error!("Failed to send Bybit unsubscription: {}", e);
+
                     let mut ws_guard = self.ws_client.lock().await;
+
                     if let Some(current) = ws_guard.as_ref() {
                         if Arc::ptr_eq(current, &ws_client) {
                             *ws_guard = None;
