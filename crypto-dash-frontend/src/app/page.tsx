@@ -7,7 +7,7 @@ import { TickerSelector } from '@/components/TickerSelector'
 import { LatencyBadge } from '@/components/LatencyBadge'
 import { useWebSocket } from '@/lib/useWebSocket'
 import { apiClient } from '@/lib/api'
-import { Channel } from '@/lib/types'
+import { Channel, SelectedTicker, SymbolResponse, SymbolInfo } from '@/lib/types'
 
 interface Exchange {
   id: string
@@ -15,30 +15,57 @@ interface Exchange {
   status: 'online' | 'offline' | 'maintenance'
 }
 
-interface SelectedTicker {
-  symbol: string
-  base: string
-  quote: string
-  exchange: string
-  display_name: string
-}
-
 const MOCK_EXCHANGES: Exchange[] = [
   { id: 'binance', name: 'Binance', status: 'online' },
   { id: 'bybit', name: 'Bybit', status: 'online' },
 ]
 
+const DEFAULT_TICKERS: SelectedTicker[] = [
+  { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', display_name: 'Bitcoin / USDT' },
+  { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', display_name: 'Ethereum / USDT' },
+]
+
 export default function HomePage() {
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance', 'bybit'])
-  const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>([
-    // Use both exchanges - Binance has working mock data with current prices, Bybit for real data when available
-    { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', display_name: 'Bitcoin / USDT' },
-    { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', display_name: 'Ethereum / USDT' },
-  ])
+  const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>(DEFAULT_TICKERS)
+  const [symbolMetadata, setSymbolMetadata] = useState<Record<string, Record<string, SymbolInfo>>>(() => ({}))
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
   
   const { state: wsState, tickers, subscribe, unsubscribe, clearError } = useWebSocket()
+
+  useEffect(() => {
+    if (selectedExchanges.length === 0) {
+      setSymbolMetadata({})
+      return
+    }
+
+    const loadMetadata = async () => {
+      try {
+        const response = await apiClient.getSymbols() as SymbolResponse[]
+        const metadataMap: Record<string, Record<string, SymbolInfo>> = {}
+
+        response.forEach((exchangeData) => {
+          if (!selectedExchanges.includes(exchangeData.exchange)) {
+            return
+          }
+
+          const symbolsMap: Record<string, SymbolInfo> = {}
+          exchangeData.symbols.forEach((symbol) => {
+            symbolsMap[symbol.symbol] = symbol
+          })
+
+          metadataMap[exchangeData.exchange] = symbolsMap
+        })
+
+        setSymbolMetadata(metadataMap)
+      } catch (error) {
+        console.error('Failed to load symbol metadata:', error)
+      }
+    }
+
+    loadMetadata()
+  }, [selectedExchanges])
 
   useEffect(() => {
     // Load exchanges from API
@@ -56,6 +83,46 @@ export default function HomePage() {
 
     loadExchanges()
   }, [])
+
+  useEffect(() => {
+    if (Object.keys(symbolMetadata).length === 0) {
+      return
+    }
+
+    setSelectedTickers((prev) => {
+      let updated = false
+      const nextTickers: SelectedTicker[] = []
+
+      prev.forEach((ticker) => {
+        const meta = symbolMetadata[ticker.exchange]?.[ticker.symbol]
+        if (!meta) {
+          nextTickers.push(ticker)
+          return
+        }
+
+        const nextTicker: SelectedTicker = { ...ticker }
+        let changed = false
+
+        if (meta.price_precision !== undefined && meta.price_precision !== ticker.price_precision) {
+          nextTicker.price_precision = meta.price_precision
+          changed = true
+        }
+
+        if (meta.tick_size !== undefined && meta.tick_size !== ticker.tick_size) {
+          nextTicker.tick_size = meta.tick_size
+          changed = true
+        }
+
+        if (changed) {
+          updated = true
+        }
+
+        nextTickers.push(nextTicker)
+      })
+
+      return updated ? nextTickers : prev
+    })
+  }, [symbolMetadata])
 
   // Subscribe to ticker data when exchanges or tickers are selected
   useEffect(() => {

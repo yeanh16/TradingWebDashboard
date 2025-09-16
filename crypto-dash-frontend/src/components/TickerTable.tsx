@@ -140,10 +140,15 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
     return () => clearTimeout(timer)
   }, [])
 
-  const formatPrice = (price: number, decimals?: number) => {
-    const precision = decimals ?? 2;
-    return price.toLocaleString('en-US', {
-      minimumFractionDigits: precision,
+  const formatPrice = (price: number | string, decimals?: number) => {
+    const numericPrice = typeof price === 'number' ? price : Number(price)
+    if (!isFinite(numericPrice)) return '-'
+
+    const precision = decimals ?? 2
+    const rounded = Number(numericPrice.toFixed(precision))
+
+    return rounded.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
       maximumFractionDigits: precision,
     })
   }
