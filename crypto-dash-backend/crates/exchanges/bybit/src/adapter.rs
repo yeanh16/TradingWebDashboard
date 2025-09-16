@@ -8,7 +8,9 @@ use anyhow::{Result, anyhow};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::Mutex;
+use tokio::time::sleep;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{debug, error, info, warn};
 
@@ -23,6 +25,8 @@ pub struct BybitAdapter {
     cache: Arc<Mutex<Option<CacheHandle>>>,
     mock_generator: Arc<Mutex<Option<MockDataGenerator>>>,
     use_mock_data: Arc<Mutex<bool>>,
+    pending_channels: Arc<Mutex<Vec<Channel>>>, // Store channels for resubscription
+    reconnect_attempts: Arc<Mutex<u32>>,
 }
 
 impl BybitAdapter {
@@ -33,6 +37,8 @@ impl BybitAdapter {
             cache: Arc::new(Mutex::new(None)),
             mock_generator: Arc::new(Mutex::new(None)),
             use_mock_data: Arc::new(Mutex::new(false)),
+            pending_channels: Arc::new(Mutex::new(Vec::new())),
+            reconnect_attempts: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -126,16 +132,46 @@ impl BybitAdapter {
             let message = {
                 let mut ws_guard = self.ws_client.lock().await;
                 if let Some(ws_client) = ws_guard.as_mut() {
-                    match ws_client.next_message().await? {
-                        Some(Message::Text(text)) => text,
-                        Some(Message::Close(_)) => {
-                            warn!("Bybit WebSocket connection closed");
+                    // Check if connection is stale and needs reconnection
+                    if ws_client.is_stale() {
+                        warn!("Bybit WebSocket connection is stale, attempting reconnection");
+                        drop(ws_guard); // Release lock before reconnection
+                        if let Err(e) = self.handle_reconnection().await {
+                            error!("Failed to reconnect Bybit WebSocket: {}", e);
                             break;
                         }
-                        Some(_) => continue,
-                        None => {
+                        continue;
+                    }
+                    
+                    match ws_client.next_message().await {
+                        Ok(Some(Message::Text(text))) => text,
+                        Ok(Some(Message::Close(_))) => {
+                            warn!("Bybit WebSocket connection closed by server");
+                            drop(ws_guard); // Release lock before reconnection
+                            if let Err(e) = self.handle_reconnection().await {
+                                error!("Failed to reconnect after server close: {}", e);
+                                break;
+                            }
+                            continue;
+                        }
+                        Ok(Some(_)) => continue, // Skip non-text messages
+                        Ok(None) => {
                             warn!("Bybit WebSocket stream ended");
-                            break;
+                            drop(ws_guard); // Release lock before reconnection
+                            if let Err(e) = self.handle_reconnection().await {
+                                error!("Failed to reconnect after stream end: {}", e);
+                                break;
+                            }
+                            continue;
+                        }
+                        Err(e) => {
+                            error!("Bybit WebSocket error: {}", e);
+                            drop(ws_guard); // Release lock before reconnection
+                            if let Err(reconnect_err) = self.handle_reconnection().await {
+                                error!("Failed to reconnect after error: {}", reconnect_err);
+                                break;
+                            }
+                            continue;
                         }
                     }
                 } else {
@@ -160,18 +196,87 @@ impl BybitAdapter {
     }
 
     async fn try_real_connection(&self) -> Result<()> {
-        // Initialize WebSocket client
-        let mut ws_client = WsClient::new(BYBIT_WS_URL);
+        // Initialize WebSocket client with ping/pong support
+        let mut ws_client = WsClient::with_timeouts(
+            BYBIT_WS_URL,
+            Duration::from_secs(20), // Ping every 20 seconds  
+            Duration::from_secs(60), // Connection timeout after 60 seconds
+        );
+        
         ws_client.connect().await?;
         *self.ws_client.lock().await = Some(ws_client);
+        *self.reconnect_attempts.lock().await = 0; // Reset reconnect attempts on successful connection
         
-        // Start listening for messages in a background task
-        let adapter = self.clone();
-        tokio::spawn(async move {
-            if let Err(e) = adapter.listen_for_messages().await {
-                error!("Bybit WebSocket listener error: {}", e);
+        info!("Bybit WebSocket connection established successfully");
+        Ok(())
+    }
+
+    async fn handle_reconnection(&self) -> Result<()> {
+        let mut attempts = self.reconnect_attempts.lock().await;
+        *attempts += 1;
+        let current_attempts = *attempts;
+        drop(attempts);
+
+        info!("Bybit WebSocket reconnection attempt #{}", current_attempts);
+
+        // Try direct connection 
+        let max_attempts = 5;
+        for attempt in 1..=max_attempts {
+            match self.try_real_connection().await {
+                Ok(()) => {
+                    info!("Bybit WebSocket reconnected successfully on attempt {}", attempt);
+                    *self.use_mock_data.lock().await = false;
+                    
+                    // Don't restart listener here to avoid recursive calls
+                    // The existing listener will handle the new connection
+                    
+                    // Resubscribe to pending channels
+                    let channels = self.pending_channels.lock().await.clone();
+                    if !channels.is_empty() {
+                        info!("Resubscribing to {} Bybit channels after reconnection", channels.len());
+                        if let Err(e) = self.resubscribe_channels(&channels).await {
+                            error!("Failed to resubscribe after reconnection: {}", e);
+                        }
+                    }
+                    
+                    return Ok(());
+                }
+                Err(e) => {
+                    error!("Reconnection attempt {} failed: {}", attempt, e);
+                    if attempt < max_attempts {
+                        let delay = Duration::from_millis(1000 * (2_u64.pow(attempt.min(6))));
+                        info!("Waiting {:?} before next reconnection attempt", delay);
+                        sleep(delay).await;
+                    }
+                }
             }
-        });
+        }
+
+        // All attempts failed
+        error!("Failed to reconnect Bybit WebSocket after {} attempts", max_attempts);
+        
+        // Fall back to mock data if reconnection fails
+        warn!("Bybit: Falling back to mock data due to reconnection failure");
+        *self.use_mock_data.lock().await = true;
+        
+        if let Some(hub) = &*self.hub.lock().await {
+            self.start_mock_data(hub.clone()).await?;
+        }
+        
+        Err(anyhow!("Failed to reconnect after {} attempts", max_attempts))
+    }
+
+    async fn resubscribe_channels(&self, channels: &[Channel]) -> Result<()> {
+        let subscription = self.format_subscription(channels)?;
+        info!("Bybit resubscription message: {}", subscription);
+        
+        let mut ws_guard = self.ws_client.lock().await;
+        if let Some(ws_client) = ws_guard.as_mut() {
+            ws_client.send_text(&subscription).await?;
+            info!("Successfully resubscribed to Bybit channels");
+        } else {
+            warn!("Cannot resubscribe: WebSocket client not available");
+        }
         
         Ok(())
     }
@@ -203,6 +308,13 @@ impl ExchangeAdapter for BybitAdapter {
             Ok(()) => {
                 info!("Bybit adapter connected to real WebSocket");
                 *self.use_mock_data.lock().await = false;
+                // Start the message listener after successful connection
+                let adapter = self.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = adapter.listen_for_messages().await {
+                        error!("Bybit WebSocket listener error: {}", e);
+                    }
+                });
             }
             Err(e) => {
                 warn!("Failed to connect to real Bybit WebSocket: {}. Falling back to mock data.", e);
@@ -218,11 +330,13 @@ impl ExchangeAdapter for BybitAdapter {
     async fn subscribe(&self, channels: &[Channel]) -> Result<()> {
         info!("Subscribing to {} Bybit channels", channels.len());
         
+        // Store channels for potential resubscription
+        *self.pending_channels.lock().await = channels.to_vec();
+        
         let use_mock = *self.use_mock_data.lock().await;
         
         if use_mock {
             info!("Using mock data for Bybit - subscription request acknowledged");
-            // Mock data generator is already running, just acknowledge the subscription
             return Ok(());
         }
         
@@ -236,24 +350,50 @@ impl ExchangeAdapter for BybitAdapter {
                     info!("Successfully sent Bybit subscription: {}", subscription);
                 }
                 Err(e) => {
-                    error!("Failed to send Bybit subscription, connection may be broken: {}", e);
-                    // Clear the broken connection so future attempts can detect the issue
+                    error!("Failed to send Bybit subscription, attempting reconnection: {}", e);
+                    // Clear the broken connection
                     *ws_guard = None;
-                    warn!("Cleared broken Bybit WebSocket connection, switching to mock data");
-                    // Switch to mock data as fallback
-                    *self.use_mock_data.lock().await = true;
-                    if let Some(hub) = &*self.hub.lock().await {
-                        self.start_mock_data(hub.clone()).await?;
-                        info!("Bybit: Switched to mock data due to connection failure");
+                    drop(ws_guard);
+                    
+                    // Attempt reconnection
+                    if let Err(reconnect_err) = self.handle_reconnection().await {
+                        warn!("Reconnection failed, switching to mock data: {}", reconnect_err);
+                        *self.use_mock_data.lock().await = true;
+                        if let Some(hub) = &*self.hub.lock().await {
+                            self.start_mock_data(hub.clone()).await?;
+                            info!("Bybit: Switched to mock data due to connection failure");
+                        }
                     }
                 }
             }
         } else {
-            warn!("Bybit WebSocket client not connected, switching to mock data");
-            *self.use_mock_data.lock().await = true;
-            if let Some(hub) = &*self.hub.lock().await {
-                self.start_mock_data(hub.clone()).await?;
-                info!("Bybit: Using mock data for subscription");
+            warn!("Bybit WebSocket client not connected, attempting connection");
+            drop(ws_guard);
+            
+            // Try to establish connection and subscribe
+            match self.try_real_connection().await {
+                Ok(()) => {
+                    // Wait a bit for connection to stabilize
+                    sleep(Duration::from_millis(500)).await;
+                    
+                    // Try subscription again
+                    let mut ws_guard = self.ws_client.lock().await;
+                    if let Some(ws_client) = ws_guard.as_mut() {
+                        if let Err(e) = ws_client.send_text(&subscription).await {
+                            error!("Failed to send subscription after reconnection: {}", e);
+                        } else {
+                            info!("Successfully subscribed after reconnection");
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to establish Bybit connection, switching to mock data: {}", e);
+                    *self.use_mock_data.lock().await = true;
+                    if let Some(hub) = &*self.hub.lock().await {
+                        self.start_mock_data(hub.clone()).await?;
+                        info!("Bybit: Using mock data for subscription");
+                    }
+                }
             }
         }
         
