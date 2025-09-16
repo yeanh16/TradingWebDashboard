@@ -24,6 +24,18 @@ mod bybit_subscription_tests {
         assert!(result.is_ok(), "Subscription should succeed even with broken connection");
     }
 
+    #[tokio::test]
+    async fn test_bybit_adapter_initial_state() {
+        // Test that adapter starts in correct state
+        let adapter = BybitAdapter::new();
+        
+        // Should not be connected initially
+        assert!(!adapter.is_connected().await, "Should not be connected initially");
+        
+        // Adapter should be ready for use
+        assert_eq!(adapter.id().as_str(), "bybit", "Exchange ID should be bybit");
+    }
+
     #[test]
     fn test_bybit_ticker_parsing() {
         // This is the example message from the user
@@ -70,5 +82,45 @@ mod bybit_subscription_tests {
         }
 
         println!("✅ BybitTicker type successfully parses the API message format!");
+    }
+
+    #[test]
+    fn test_bybit_subscription_success_message() {
+        // Test parsing of subscription success response
+        let success_message = r#"{
+            "success": true,
+            "ret_msg": "OK"
+        }"#;
+
+        let parsed: BybitMessage = serde_json::from_str(success_message).unwrap();
+        match parsed {
+            BybitMessage::Subscription { success, ret_msg } => {
+                assert!(success, "Subscription should be successful");
+                assert_eq!(ret_msg, "OK", "Success message should be OK");
+            }
+            _ => panic!("Expected Subscription message"),
+        }
+
+        println!("✅ Subscription success message parsed correctly!");
+    }
+
+    #[test]
+    fn test_bybit_subscription_error_message() {
+        // Test parsing of subscription error response
+        let error_message = r#"{
+            "success": false,
+            "ret_msg": "Invalid channel"
+        }"#;
+
+        let parsed: BybitMessage = serde_json::from_str(error_message).unwrap();
+        match parsed {
+            BybitMessage::Subscription { success, ret_msg } => {
+                assert!(!success, "Subscription should fail");
+                assert_eq!(ret_msg, "Invalid channel", "Error message should match");
+            }
+            _ => panic!("Expected Subscription message"),
+        }
+
+        println!("✅ Subscription error message parsed correctly!");
     }
 }
