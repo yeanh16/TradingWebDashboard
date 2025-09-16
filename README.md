@@ -1,143 +1,129 @@
 # Crypto Trading Dashboard
 
-A high-performance, real-time cryptocurrency trading dashboard that aggregates market data from multiple exchanges. Built with Rust backend for low-latency streaming and React frontend for responsive user experience.
+Monorepo for a real-time cryptocurrency market dashboard. A Rust backend ingests and normalizes exchange data and exposes REST + WebSocket APIs, while a Next.js frontend renders an interactive trading view.
 
-## 🚀 Features
+## Highlights
+- Axum-based Rust API that streams normalized ticker updates and Binance order-book snapshots over WebSockets.
+- Exchange adapters for Binance and Bybit built on a shared trait with automatic reconnects and mock-data fallback.
+- Exchange catalog service that fetches symbol metadata from upstream REST APIs, caches the results, and exposes them via `/api/symbols`.
+- In-memory cache and publish/subscribe stream hub so multiple WebSocket clients can share upstream connections without duplication.
+- Next.js 14 frontend with exchange and ticker selectors, latency monitoring, and a live markets table with graceful offline fallback.
+- Batteries-included testing across cargo, Jest, and Playwright, plus a `run-tests.sh` helper to execute full suites locally.
 
-### Core Capabilities
-- **Multi-Exchange Support**: Binance, Bybit (easily extensible)
-- **Real-Time Streaming**: Sub-100ms WebSocket data distribution
-- **Unified Data Model**: Normalized market data across all venues
-- **Live Order Books**: Top-N level updates with delta highlighting
-- **Ticker Monitoring**: Best bid/ask with 24h change tracking
-- **Exchange Comparison**: Side-by-side market analysis
-
-### Technical Highlights
-- **Low Latency**: Rust/Tokio backend optimized for performance
-- **Scalable Architecture**: Modular design with clean separation
-- **Type Safety**: Full Rust + TypeScript implementation
-- **Real-Time UI**: React with WebSocket integration
-- **Responsive Design**: Mobile-friendly Tailwind CSS styling
-- **Health Monitoring**: Built-in metrics and connection status
-
-## 🏗️ Architecture
-
+## Architecture Overview
 ```
-┌─────────────────┐     ┌──────────────────────────────────────┐     ┌─────────────────┐
-│   Exchanges     │────▶│           Backend (Rust)             │────▶│  Frontend (TS)  │
-│                 │     │                                      │     │                 │
-│ • Binance       │     │ ┌─────────────┐ ┌──────────────────┐ │     │ • React/Next.js │
-│ • Bybit         │     │ │ Exchange    │ │    Stream Hub    │ │     │ • WebSocket     │
-│ • OKX (future)  │     │ │ Adapters    │ │   (Pub/Sub)      │ │     │ • Recharts      │
-│ • Coinbase (f.) │     │ └─────────────┘ └──────────────────┘ │     │ • Tailwind CSS  │
-│                 │     │ ┌─────────────┐ ┌──────────────────┐ │     │                 │
-│                 │     │ │   Cache     │ │   HTTP API       │ │     │                 │
-│                 │     │ │ (DashMap)   │ │   (Axum)         │ │     │                 │
-│                 │     │ └─────────────┘ └──────────────────┘ │     │                 │
-└─────────────────┘     └──────────────────────────────────────┘     └─────────────────┘
-        │                                   │                                   │
-    WebSocket                          HTTP + WebSocket                    HTTP + WebSocket
-    REST APIs                          endpoints                          client connections
++------------------------------+        +----------------------------------------------+        +-----------------------------+
+|      crypto-dash-frontend    |        |             crypto-dash-backend              |        |     External Exchanges      |
+|------------------------------|        |----------------------------------------------|        |-----------------------------|
+|  Next.js App Router (pages)  |        |  Axum API (REST + WebSocket gateway)         |        |  Binance WS / REST APIs     |
+|  Exchange/Ticker components  |        |  Stream Hub (pub/sub topics)                 |        |  Bybit WS / REST APIs       |
+|  useWebSocket hook           |<------>|  Memory Cache (latest tickers/order books)   |<-------+  Live feeds and metadata    |
+|  apiClient (REST helper)     |  WS    |  Exchange Catalog (symbol metadata service)  |        |                             |
+|  Zustand / React Query store |  REST  |  Exchange Adapters (Binance, Bybit)          |        |                             |
+|  Tailwind-powered UI         |<------>|      - shared WS client and mock generator   |        |                             |
+|------------------------------|        |----------------------------------------------|        |-----------------------------|
+            ^                                      ^                 ^
+            |                                      |                 |
+            +---------------------------+----------+-----------------+
+                                        |
+                                        v
+                         run-tests.sh / TESTING.md orchestration
 ```
+The diagram highlights how the Next.js frontend consumes REST and WebSocket data exposed by the Axum API. Exchange adapters maintain upstream sessions (or fall back to deterministic mock data), publish normalized events into the stream hub, and persist snapshots in the cache, while the catalog fetches and caches symbol metadata. Frontend stores feed React components via Zustand and React Query.js frontend consumes REST and WebSocket data exposed by the Axum API. Adapters (Binance, Bybit) maintain upstream exchange connections or generate mock data, publish normalized events into the stream hub, and persist snapshots in the cache. The exchange catalog fetches and caches symbol metadata. Frontend data flows through Zustand/React Query into UI components.js UI talks to the Axum API over REST and WebSockets. Exchange adapters maintain upstream sessions (or fall back to deterministic mock data) and publish normalized events into the stream hub and cache, while the catalog fetches symbol metadata from exchange REST APIs.
 
-## 📁 Project Structure
-
+## Repository Layout
 ```
 TradingWebDashboard/
-├── crypto-dash-backend/           # Rust backend
-│   ├── crates/
-│   │   ├── api/                   # HTTP server & WebSocket handlers
-│   │   ├── core/                  # Domain models & utilities
-│   │   ├── stream-hub/            # Real-time broadcasting
-│   │   ├── cache/                 # In-memory data store
-│   │   └── exchanges/             # Exchange adapters
-│   │       ├── common/            # Shared utilities
-│   │       ├── binance/           # Binance integration
-│   │       └── bybit/             # Bybit integration
-│   ├── scripts/                   # Development tools
-│   └── README.md
-│
-├── crypto-dash-frontend/          # TypeScript frontend
-│   ├── src/
-│   │   ├── app/                   # Next.js pages
-│   │   ├── components/            # React components
-│   │   ├── lib/                   # API client & utilities
-│   │   └── styles/                # Tailwind CSS
-│   └── README.md
-│
-└── README.md                      # This file
+  crypto-dash-backend/          # Rust workspace
+    crates/
+      api/                      # HTTP + WebSocket service
+      core/                     # Shared models, config, normalization helpers
+      stream-hub/               # Broadcast hub for market data topics
+      cache/                    # In-memory cache facade
+      exchanges/
+        common/                 # Exchange adapter trait, WS client, mock generator
+        binance/                # Binance integration
+        bybit/                  # Bybit integration
+    integration-tests/          # Cross-crate integration suite
+    tests/                      # High-level backend tests
+    scripts/                    # Developer scripts (dev.sh, etc.)
+  crypto-dash-frontend/         # Next.js 14 application
+    src/app/                    # App Router entrypoint
+    src/components/             # Dashboard UI building blocks
+    src/lib/                    # API client + WebSocket hook
+    tests/                      # Jest + Playwright suites
+  run-tests.sh                  # Helper to run backend and frontend tests
+  TESTING.md                    # Extended testing guide
 ```
 
-## 🚀 Quick Start
+## Getting Started
 
-### Prerequisites
+### Backend (Rust)
+1. Install Rust (https://rustup.rs) and ensure `cargo` is on your `PATH`.
+2. Copy the example environment file and adjust as needed:
+   ```
+   cd crypto-dash-backend
+   cp .env.example .env
+   ```
+3. Run the API service:
+   ```
+   cargo run -p api
+   ```
+   The server listens on `http://localhost:8080` by default and serves both REST endpoints and the `/ws` WebSocket.
 
-- **Rust** 1.70+ (`rustup`, `cargo`)
-- **Node.js** 18+ & npm
-- **Git**
-
-### 1. Clone Repository
-
-```bash
-git clone <repository-url>
-cd TradingWebDashboard
+Useful commands:
+```
+cargo check          # fast validation
+cargo test           # workspace tests
+RUST_LOG=debug cargo run -p api
 ```
 
-### 2. Start Backend
+### Frontend (Next.js)
+1. Install Node.js 18+.
+2. Copy the example env file:
+   ```
+   cd crypto-dash-frontend
+   cp .env.local.example .env.local
+   ```
+3. Install dependencies and start the dev server:
+   ```
+   npm install
+   npm run dev
+   ```
+   The UI is served from `http://localhost:3000` and expects the backend at `http://localhost:8080` unless `NEXT_PUBLIC_API_URL` is overridden.
 
-```bash
-cd crypto-dash-backend
-cp .env.example .env          # Configure as needed
-cargo run -p api              # Starts on http://localhost:8080
+Other scripts:
+```
+npm run build        # production build
+npm run lint         # ESLint
+npm test             # Jest unit + integration tests
+npm run test:e2e     # Playwright end-to-end tests
 ```
 
-### 3. Start Frontend (New Terminal)
+## Environment Configuration
 
-```bash
-cd crypto-dash-frontend
-cp .env.local.example .env.local    # Configure as needed
-npm install
-npm run dev                         # Starts on http://localhost:3000
-```
+Backend `.env` options (see `crypto-dash-backend/.env.example`):
+- `BIND_ADDR`: host and port for the Axum server (default `0.0.0.0:8080`).
+- `EXCHANGES`: comma-separated list of adapters to start (`binance,bybit`).
+- `RUST_LOG`: tracing filter (default `info` with crate overrides).
+- `ENABLE_REDIS` / `REDIS_URL`: reserved for the upcoming Redis cache integration.
+- `BOOK_DEPTH_DEFAULT`: default order-book depth when requesting snapshots (Binance adapter honours this setting).
 
-### 4. Access Dashboard
+Frontend `.env.local`:
+- `NEXT_PUBLIC_API_URL`: base URL for REST + WebSocket endpoints (defaults to `http://localhost:8080`).
 
-Open http://localhost:3000 in your browser and explore:
+## API Surface
 
-- **Markets Overview**: Live ticker data from selected exchanges
-- **Exchange Selection**: Toggle between Binance, Bybit
-- **Real-Time Updates**: Watch bid/ask prices update live
-- **Connection Status**: Monitor WebSocket latency
+REST endpoints (served from `http://localhost:8080`):
+- `GET /health` - liveness status.
+- `GET /ready` - readiness status including dependency health.
+- `GET /api/exchanges` - active exchanges with connection status.
+- `GET /api/symbols` - symbol metadata grouped by exchange. Use `?exchange=binance` to filter.
+- `POST /api/symbols/refresh` - refresh metadata for all exchanges or a specific one via `?exchange=`.
 
-## 🔧 Configuration
+WebSocket endpoint: `ws://localhost:8080/ws`
 
-### Backend (.env)
-```bash
-RUST_LOG=info,crypto_dash=debug
-BIND_ADDR=0.0.0.0:8080
-EXCHANGES=binance,bybit
-BOOK_DEPTH_DEFAULT=50
-ENABLE_REDIS=false
-```
-
-### Frontend (.env.local)
-```bash
-NEXT_PUBLIC_API_URL=http://localhost:8080
-```
-
-## 📚 API Documentation
-
-### REST Endpoints
-
-- `GET /health` - Service health check
-- `GET /ready` - Readiness probe  
-- `GET /api/exchanges` - List supported exchanges
-
-### WebSocket Protocol
-
-**Connect**: `ws://localhost:8080/ws`
-
-**Subscribe to channels**:
+Subscribe to live channels by sending:
 ```json
 {
   "op": "subscribe",
@@ -151,13 +137,13 @@ NEXT_PUBLIC_API_URL=http://localhost:8080
 }
 ```
 
-**Receive updates**:
+Server messages follow the `StreamMessage` enum:
 ```json
 {
   "type": "ticker",
   "payload": {
     "timestamp": "2024-01-01T00:00:00Z",
-    "exchange": "binance", 
+    "exchange": "binance",
     "symbol": {"base": "BTC", "quote": "USDT"},
     "bid": 43250.50,
     "ask": 43251.75,
@@ -167,95 +153,60 @@ NEXT_PUBLIC_API_URL=http://localhost:8080
   }
 }
 ```
+Additional message types include `order_book_snapshot`, `order_book_delta`, `info`, and `error`. Clients can also send `{"op":"ping"}` and receive latency-aware `info` responses.
 
-## 🧪 Development
+The backend caches the latest values so new subscribers receive updates without having to trigger new upstream connections. If an upstream exchange is unreachable, adapters fall back to deterministic mock data so local development can continue.
 
-### Backend Development
+## Frontend Features
 
-```bash
+- Uses a shared `useWebSocket` hook for automatic reconnects, ping/pong latency tracking, and selective subscribe/unsubscribe per ticker.
+- Displays exchange metadata and symbols fetched from the REST API with graceful degradation if the API is offline (defaults to a curated list).
+- `ExchangeSelector`, `TickerSelector`, `TickerTable`, and `LatencyBadge` components compose the dashboard. The table highlights price movements and shows mock values whenever the WebSocket is disconnected.
+- Styling through Tailwind CSS with responsive layouts; icons via `lucide-react`.
+
+## Testing
+
+Backend:
+```
 cd crypto-dash-backend
-
-# Fast compilation check
-cargo check
-
-# Run tests
-cargo test
-
-# Start with detailed logs
-RUST_LOG=debug cargo run -p api
-
-# Development script
-./scripts/dev.sh
+cargo test            # unit + integration tests
 ```
 
-### Frontend Development
-
-```bash
+Frontend:
+```
 cd crypto-dash-frontend
-
-# Start dev server with hot reload
-npm run dev
-
-# Type checking
-npx tsc --noEmit
-
-# Lint code
-npm run lint
-
-# Build for production
-npm run build
+npm test              # Jest unit + integration
+npm run test:e2e      # Playwright (requires backend + frontend running)
 ```
 
-## 🔮 Roadmap
+All-in-one helper:
+```
+./run-tests.sh --help
+./run-tests.sh                # backend + frontend unit tests
+./run-tests.sh --all          # include E2E, performance placeholders, reports
+```
 
-### Phase 1 (MVP) ✅
-- [x] Basic project structure
-- [x] Rust backend with Axum
-- [x] Exchange adapter framework
-- [x] WebSocket streaming infrastructure
-- [x] React frontend with real-time updates
-- [x] Ticker data display
+See `TESTING.md` for deep-dives, coverage tips, and debugging commands.
 
-### Phase 2 (Enhanced)
-- [ ] Live order book visualization
-- [ ] WebSocket real exchange connections
-- [ ] Symbol search and favorites
-- [ ] Price charts with TradingView Lightweight Charts
-- [ ] Compare mode for multiple symbols
+## Additional Documentation
 
-### Phase 3 (Advanced)
-- [ ] Historical data persistence
-- [ ] Derived metrics (spread %, book imbalance)
-- [ ] Alerts and notifications
-- [ ] Advanced charting with indicators
-- [ ] Portfolio tracking (view-only)
+- `crypto-dash-backend/README.md` - backend-focused details.
+- `crypto-dash-frontend/README.md` - frontend-specific notes.
+- `TESTING.md` - comprehensive testing strategy.
 
-### Phase 4 (Scale)
-- [ ] Redis pub/sub for horizontal scaling
-- [ ] Kubernetes deployment configs
-- [ ] Performance monitoring
-- [ ] Load testing framework
-- [ ] Additional exchanges (OKX, Coinbase, etc.)
+## Roadmap
 
-## 🤝 Contributing
+Current focus areas include:
+- Exposing cached order-book snapshots and deltas to the frontend UI.
+- Surfacing additional exchanges (OKX, Coinbase) through the adapter interface.
+- Optional Redis backing store for distributed deployments.
+- Enhanced frontend visualizations (depth charts, comparative views).
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Contributions and feedback are welcome; open an issue or PR with ideas or improvements.
 
-## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
 
-- Built with [Rust](https://www.rust-lang.org/) and [Tokio](https://tokio.rs/)
-- UI powered by [Next.js](https://nextjs.org/) and [Tailwind CSS](https://tailwindcss.com/)
-- Icons by [Lucide](https://lucide.dev/)
-- Inspired by professional trading platforms
 
----
 
-**Happy Trading!** 📈🚀
+
