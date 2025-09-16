@@ -13,7 +13,14 @@ pub struct BybitTicker {
     pub bid_size: String,
     #[serde(rename = "askSize")]
     pub ask_size: String,
-    pub ts: u64,
+    #[serde(rename = "highPrice24h")]
+    pub high_price_24h: String,
+    #[serde(rename = "lowPrice24h")]
+    pub low_price_24h: String,
+    #[serde(rename = "prevPrice24h")]
+    pub prev_price_24h: String,
+    #[serde(rename = "volume24h")]
+    pub volume_24h: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +28,9 @@ pub struct BybitTicker {
 pub enum BybitMessage {
     Ticker {
         topic: String,
+        ts: u64,
+        #[serde(rename = "type")]
+        message_type: String,
         data: BybitTicker,
     },
     Subscription {

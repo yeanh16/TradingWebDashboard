@@ -14,6 +14,8 @@ use tracing::{debug, error, info, warn};
 
 const BYBIT_WS_URL: &str = "wss://stream.bybit.com/v5/public/spot";
 
+
+
 #[derive(Clone)]
 pub struct BybitAdapter {
     ws_client: Arc<Mutex<Option<WsClient>>>,
@@ -36,24 +38,26 @@ impl BybitAdapter {
 
     async fn handle_message(&self, message: BybitMessage) -> Result<()> {
         match message {
-            BybitMessage::Ticker { topic: _, data } => {
-                self.handle_ticker(data).await?;
+            BybitMessage::Ticker { topic: _, ts, message_type: _, data } => {
+                self.handle_ticker(data, ts).await?;
             }
             BybitMessage::Subscription { success, ret_msg } => {
                 if success {
-                    debug!("Bybit subscription successful: {}", ret_msg);
+                    info!("Bybit subscription successful: {}", ret_msg);
+                    debug!("Bybit subscription response: success={}, message={}", success, ret_msg);
                 } else {
                     error!("Bybit subscription failed: {}", ret_msg);
+                    debug!("Bybit subscription response: success={}, message={}", success, ret_msg);
                 }
             }
         }
         Ok(())
     }
 
-    async fn handle_ticker(&self, ticker: BybitTicker) -> Result<()> {
+    async fn handle_ticker(&self, ticker: BybitTicker, timestamp_ms: u64) -> Result<()> {
         let symbol = self.parse_symbol(&ticker.symbol)?;
-        let timestamp = crypto_dash_core::time::from_millis(ticker.ts as i64)
-            .ok_or_else(|| anyhow!("Invalid timestamp: {}", ticker.ts))?;
+        let timestamp = crypto_dash_core::time::from_millis(timestamp_ms as i64)
+            .ok_or_else(|| anyhow!("Invalid timestamp: {}", timestamp_ms))?;
 
         let normalized_ticker = Ticker {
             timestamp,
