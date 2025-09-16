@@ -1,8 +1,8 @@
+use anyhow::Result;
+use async_trait::async_trait;
 use crypto_dash_cache::CacheHandle;
 use crypto_dash_core::model::{Channel, ExchangeId};
 use crypto_dash_stream_hub::HubHandle;
-use async_trait::async_trait;
-use anyhow::Result;
 
 /// Common interface for exchange adapters
 #[async_trait]

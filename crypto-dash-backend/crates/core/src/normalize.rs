@@ -1,6 +1,6 @@
 use crate::model::{ExchangeId, Symbol};
-use std::collections::HashMap;
 use anyhow::Result;
+use std::collections::HashMap;
 
 /// Symbol normalization utilities
 pub struct SymbolMapper {
@@ -19,36 +19,81 @@ impl SymbolMapper {
     }
 
     /// Add a symbol mapping
-    pub fn add_mapping(&mut self, exchange: ExchangeId, exchange_symbol: String, canonical: Symbol) {
-        self.exchange_to_canonical.insert((exchange.clone(), exchange_symbol.clone()), canonical.clone());
-        self.canonical_to_exchange.insert((exchange, canonical), exchange_symbol);
+    pub fn add_mapping(
+        &mut self,
+        exchange: ExchangeId,
+        exchange_symbol: String,
+        canonical: Symbol,
+    ) {
+        self.exchange_to_canonical.insert(
+            (exchange.clone(), exchange_symbol.clone()),
+            canonical.clone(),
+        );
+        self.canonical_to_exchange
+            .insert((exchange, canonical), exchange_symbol);
     }
 
     /// Convert exchange-specific symbol to canonical
     pub fn to_canonical(&self, exchange: &ExchangeId, exchange_symbol: &str) -> Option<Symbol> {
-        self.exchange_to_canonical.get(&(exchange.clone(), exchange_symbol.to_string())).cloned()
+        self.exchange_to_canonical
+            .get(&(exchange.clone(), exchange_symbol.to_string()))
+            .cloned()
     }
 
     /// Convert canonical symbol to exchange-specific
     pub fn to_exchange(&self, exchange: &ExchangeId, canonical: &Symbol) -> Option<String> {
-        self.canonical_to_exchange.get(&(exchange.clone(), canonical.clone())).cloned()
+        self.canonical_to_exchange
+            .get(&(exchange.clone(), canonical.clone()))
+            .cloned()
     }
 
     /// Load default mappings for common exchanges
     pub fn load_defaults(&mut self) {
         // Binance mappings
         let binance = ExchangeId::from("binance");
-        self.add_mapping(binance.clone(), "BTCUSDT".to_string(), Symbol::new("BTC", "USDT"));
-        self.add_mapping(binance.clone(), "ETHUSDT".to_string(), Symbol::new("ETH", "USDT"));
-        self.add_mapping(binance.clone(), "ADAUSDT".to_string(), Symbol::new("ADA", "USDT"));
-        self.add_mapping(binance.clone(), "SOLUSDT".to_string(), Symbol::new("SOL", "USDT"));
+        self.add_mapping(
+            binance.clone(),
+            "BTCUSDT".to_string(),
+            Symbol::new("BTC", "USDT"),
+        );
+        self.add_mapping(
+            binance.clone(),
+            "ETHUSDT".to_string(),
+            Symbol::new("ETH", "USDT"),
+        );
+        self.add_mapping(
+            binance.clone(),
+            "ADAUSDT".to_string(),
+            Symbol::new("ADA", "USDT"),
+        );
+        self.add_mapping(
+            binance.clone(),
+            "SOLUSDT".to_string(),
+            Symbol::new("SOL", "USDT"),
+        );
 
         // Bybit mappings
         let bybit = ExchangeId::from("bybit");
-        self.add_mapping(bybit.clone(), "BTCUSDT".to_string(), Symbol::new("BTC", "USDT"));
-        self.add_mapping(bybit.clone(), "ETHUSDT".to_string(), Symbol::new("ETH", "USDT"));
-        self.add_mapping(bybit.clone(), "ADAUSDT".to_string(), Symbol::new("ADA", "USDT"));
-        self.add_mapping(bybit.clone(), "SOLUSDT".to_string(), Symbol::new("SOL", "USDT"));
+        self.add_mapping(
+            bybit.clone(),
+            "BTCUSDT".to_string(),
+            Symbol::new("BTC", "USDT"),
+        );
+        self.add_mapping(
+            bybit.clone(),
+            "ETHUSDT".to_string(),
+            Symbol::new("ETH", "USDT"),
+        );
+        self.add_mapping(
+            bybit.clone(),
+            "ADAUSDT".to_string(),
+            Symbol::new("ADA", "USDT"),
+        );
+        self.add_mapping(
+            bybit.clone(),
+            "SOLUSDT".to_string(),
+            Symbol::new("SOL", "USDT"),
+        );
     }
 }
 
@@ -69,9 +114,9 @@ mod tests {
         let mut mapper = SymbolMapper::new();
         let exchange = ExchangeId::from("binance");
         let canonical = Symbol::new("BTC", "USDT");
-        
+
         mapper.add_mapping(exchange.clone(), "BTCUSDT".to_string(), canonical.clone());
-        
+
         assert_eq!(
             mapper.to_canonical(&exchange, "BTCUSDT"),
             Some(canonical.clone())
@@ -86,7 +131,7 @@ mod tests {
     fn test_default_mappings() {
         let mapper = SymbolMapper::default();
         let binance = ExchangeId::from("binance");
-        
+
         assert_eq!(
             mapper.to_canonical(&binance, "BTCUSDT"),
             Some(Symbol::new("BTC", "USDT"))
@@ -99,18 +144,18 @@ pub fn precision_from_tick_size(tick_size: &str) -> Result<u32> {
     if tick_size == "0" || tick_size.is_empty() {
         return Ok(0);
     }
-    
+
     if let Some(decimal_pos) = tick_size.find('.') {
         let decimal_part = &tick_size[decimal_pos + 1..];
         // Count trailing zeros to find the first non-zero digit
-        let trailing_zeros = decimal_part.chars()
-            .take_while(|&c| c == '0')
-            .count();
-        
+        let trailing_zeros = decimal_part.chars().take_while(|&c| c == '0').count();
+
         // Find the first non-zero digit after decimal point
-        if let Some(first_non_zero) = decimal_part.chars()
+        if let Some(first_non_zero) = decimal_part
+            .chars()
             .skip(trailing_zeros)
-            .find(|&c| c != '0') {
+            .find(|&c| c != '0')
+        {
             if first_non_zero == '1' {
                 // For tick sizes like "0.001", precision is the number of decimal places
                 Ok(decimal_part.len() as u32)
@@ -183,11 +228,11 @@ mod normalization_tests {
     #[test]
     fn test_normalize_symbol() {
         let binance = ExchangeId::from("binance");
-        
+
         let symbol = normalize_symbol("BTCUSDT", &binance);
         assert_eq!(symbol.base, "BTC");
         assert_eq!(symbol.quote, "USDT");
-        
+
         let symbol = normalize_symbol("ETHBTC", &binance);
         assert_eq!(symbol.base, "ETH");
         assert_eq!(symbol.quote, "BTC");

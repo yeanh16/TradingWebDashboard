@@ -1,42 +1,61 @@
-use tokio_tungstenite::{connect_async, tungstenite::Message, WebSocketStream, MaybeTlsStream};
-use tokio::net::TcpStream;
+use anyhow::{anyhow, Result};
+use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
-use url::Url;
-use anyhow::{Result, anyhow};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use tokio::net::TcpStream;
+use tokio::sync::Mutex;
+use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tracing::{debug, error, warn};
+use url::Url;
 
 pub type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-/// WebSocket client helper
+/// WebSocket client helper that supports concurrent send/receive operations
+#[derive(Clone)]
 pub struct WsClient {
-    url: String,
-    stream: Option<WsStream>,
+    url: Arc<String>,
+    writer: Arc<Mutex<Option<SplitSink<WsStream, Message>>>>,
+    reader: Arc<Mutex<Option<SplitStream<WsStream>>>>,
+    connected: Arc<AtomicBool>,
 }
 
 impl WsClient {
     pub fn new(url: impl Into<String>) -> Self {
         Self {
-            url: url.into(),
-            stream: None,
+            url: Arc::new(url.into()),
+            writer: Arc::new(Mutex::new(None)),
+            reader: Arc::new(Mutex::new(None)),
+            connected: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Connect to the WebSocket
-    pub async fn connect(&mut self) -> Result<()> {
-        let url = Url::parse(&self.url)?;
+    pub async fn connect(&self) -> Result<()> {
+        let url = Url::parse(self.url.as_str())?;
         debug!("Connecting to WebSocket: {}", self.url);
-        
+
         let (stream, response) = connect_async(url).await?;
         debug!("WebSocket connected, status: {}", response.status());
-        
-        self.stream = Some(stream);
+
+        let (writer, reader) = stream.split();
+        {
+            let mut writer_guard = self.writer.lock().await;
+            *writer_guard = Some(writer);
+        }
+        {
+            let mut reader_guard = self.reader.lock().await;
+            *reader_guard = Some(reader);
+        }
+        self.connected.store(true, Ordering::SeqCst);
         Ok(())
     }
 
     /// Send a message
-    pub async fn send(&mut self, message: Message) -> Result<()> {
-        if let Some(stream) = &mut self.stream {
-            stream.send(message).await?;
+    pub async fn send(&self, message: Message) -> Result<()> {
+        let mut writer_guard = self.writer.lock().await;
+        if let Some(writer) = writer_guard.as_mut() {
+            writer.send(message).await?;
             Ok(())
         } else {
             Err(anyhow!("WebSocket not connected"))
@@ -44,26 +63,29 @@ impl WsClient {
     }
 
     /// Send a text message
-    pub async fn send_text(&mut self, text: impl Into<String>) -> Result<()> {
+    pub async fn send_text(&self, text: impl Into<String>) -> Result<()> {
         self.send(Message::Text(text.into())).await
     }
 
     /// Send a JSON message
-    pub async fn send_json<T: serde::Serialize>(&mut self, data: &T) -> Result<()> {
+    pub async fn send_json<T: serde::Serialize>(&self, data: &T) -> Result<()> {
         let text = serde_json::to_string(data)?;
         self.send_text(text).await
     }
 
     /// Receive the next message
-    pub async fn next_message(&mut self) -> Result<Option<Message>> {
-        if let Some(stream) = &mut self.stream {
-            match stream.next().await {
+    pub async fn next_message(&self) -> Result<Option<Message>> {
+        let mut reader_guard = self.reader.lock().await;
+        if let Some(reader) = reader_guard.as_mut() {
+            match reader.next().await {
                 Some(Ok(message)) => Ok(Some(message)),
                 Some(Err(e)) => {
+                    self.connected.store(false, Ordering::SeqCst);
                     error!("WebSocket error: {}", e);
                     Err(e.into())
                 }
                 None => {
+                    self.connected.store(false, Ordering::SeqCst);
                     warn!("WebSocket stream ended");
                     Ok(None)
                 }
@@ -75,14 +97,22 @@ impl WsClient {
 
     /// Check if connected
     pub fn is_connected(&self) -> bool {
-        self.stream.is_some()
+        self.connected.load(Ordering::SeqCst)
     }
 
     /// Close the connection
-    pub async fn close(&mut self) -> Result<()> {
-        if let Some(mut stream) = self.stream.take() {
-            stream.close(None).await?;
-            debug!("WebSocket connection closed");
+    pub async fn close(&self) -> Result<()> {
+        self.connected.store(false, Ordering::SeqCst);
+        {
+            let mut writer_guard = self.writer.lock().await;
+            if let Some(mut writer) = writer_guard.take() {
+                writer.close().await?;
+                debug!("WebSocket connection closed");
+            }
+        }
+        {
+            let mut reader_guard = self.reader.lock().await;
+            *reader_guard = None;
         }
         Ok(())
     }
@@ -90,7 +120,7 @@ impl WsClient {
 
 impl Drop for WsClient {
     fn drop(&mut self) {
-        if self.stream.is_some() {
+        if self.connected.load(Ordering::SeqCst) {
             debug!("WebSocket client dropped, connection may still be open");
         }
     }

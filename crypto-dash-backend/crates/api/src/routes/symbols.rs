@@ -1,9 +1,9 @@
+use crate::state::AppState;
 use axum::{
     extract::{Query, State},
     http::StatusCode,
     response::Json,
 };
-use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -46,15 +46,15 @@ pub async fn list_symbols(
 ) -> Result<Json<Vec<SymbolResponse>>, StatusCode> {
     // Try to get symbols from the catalog first
     let symbol_metas = state.get_symbol_meta(params.exchange.as_deref()).await;
-    
+
     if !symbol_metas.is_empty() {
         // Group symbols by exchange
         let mut response_map: HashMap<String, Vec<SymbolMetaDto>> = HashMap::new();
-        
+
         for meta in symbol_metas {
             let display_name = format!("{} / {}", meta.base, meta.quote);
             let symbol_key = format!("{}-{}", meta.base, meta.quote);
-            
+
             let dto = SymbolMetaDto {
                 symbol: symbol_key,
                 base: meta.base,
@@ -65,39 +65,44 @@ pub async fn list_symbols(
                 min_qty: meta.min_qty,
                 step_size: meta.step_size,
             };
-            
-            response_map.entry(meta.exchange.as_str().to_string())
+
+            response_map
+                .entry(meta.exchange.as_str().to_string())
                 .or_insert_with(Vec::new)
                 .push(dto);
         }
-        
-        let response: Vec<SymbolResponse> = response_map.into_iter()
+
+        let response: Vec<SymbolResponse> = response_map
+            .into_iter()
             .map(|(exchange, symbols)| SymbolResponse { exchange, symbols })
             .collect();
-            
+
         return Ok(Json(response));
     }
-    
+
     // Fallback to curated list if no symbols are available
     let exchanges = state.get_exchange_info().await;
     let popular_symbols = get_popular_symbols();
-    
+
     let mut response = Vec::new();
-    
+
     if let Some(exchange_filter) = params.exchange {
         // Return symbols for specific exchange
         if let Some(symbols) = popular_symbols.get(&exchange_filter) {
-            let symbol_dtos: Vec<SymbolMetaDto> = symbols.iter().map(|s| SymbolMetaDto {
-                symbol: s.symbol.clone(),
-                base: s.base.clone(),
-                quote: s.quote.clone(),
-                display_name: s.display_name.clone(),
-                price_precision: 2, // Default precision
-                tick_size: "0.01".to_string(),
-                min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
-                step_size: rust_decimal::Decimal::new(1, 3), // 0.001
-            }).collect();
-            
+            let symbol_dtos: Vec<SymbolMetaDto> = symbols
+                .iter()
+                .map(|s| SymbolMetaDto {
+                    symbol: s.symbol.clone(),
+                    base: s.base.clone(),
+                    quote: s.quote.clone(),
+                    display_name: s.display_name.clone(),
+                    price_precision: 2, // Default precision
+                    tick_size: "0.01".to_string(),
+                    min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
+                    step_size: rust_decimal::Decimal::new(1, 3), // 0.001
+                })
+                .collect();
+
             response.push(SymbolResponse {
                 exchange: exchange_filter,
                 symbols: symbol_dtos,
@@ -107,17 +112,20 @@ pub async fn list_symbols(
         // Return symbols for all available exchanges
         for exchange in exchanges {
             if let Some(symbols) = popular_symbols.get(exchange.id.as_str()) {
-                let symbol_dtos: Vec<SymbolMetaDto> = symbols.iter().map(|s| SymbolMetaDto {
-                    symbol: s.symbol.clone(),
-                    base: s.base.clone(),
-                    quote: s.quote.clone(),
-                    display_name: s.display_name.clone(),
-                    price_precision: 2, // Default precision
-                    tick_size: "0.01".to_string(),
-                    min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
-                    step_size: rust_decimal::Decimal::new(1, 3), // 0.001
-                }).collect();
-                
+                let symbol_dtos: Vec<SymbolMetaDto> = symbols
+                    .iter()
+                    .map(|s| SymbolMetaDto {
+                        symbol: s.symbol.clone(),
+                        base: s.base.clone(),
+                        quote: s.quote.clone(),
+                        display_name: s.display_name.clone(),
+                        price_precision: 2, // Default precision
+                        tick_size: "0.01".to_string(),
+                        min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
+                        step_size: rust_decimal::Decimal::new(1, 3), // 0.001
+                    })
+                    .collect();
+
                 response.push(SymbolResponse {
                     exchange: exchange.id.as_str().to_string(),
                     symbols: symbol_dtos,
@@ -125,7 +133,7 @@ pub async fn list_symbols(
             }
         }
     }
-    
+
     Ok(Json(response))
 }
 
@@ -135,27 +143,29 @@ pub async fn refresh_symbols(
     State(state): State<AppState>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     match params.exchange {
-        Some(exchange_name) => {
-            match state.refresh_exchange_symbols(&exchange_name).await {
-                Ok(_) => Ok(Json(serde_json::json!({
-                    "success": true,
-                    "message": format!("Symbols refreshed for {}", exchange_name)
-                }))),
-                Err(e) => {
-                    tracing::error!("Failed to refresh symbols for {}: {}", exchange_name, e);
-                    Err(StatusCode::INTERNAL_SERVER_ERROR)
-                }
+        Some(exchange_name) => match state.refresh_exchange_symbols(&exchange_name).await {
+            Ok(_) => Ok(Json(serde_json::json!({
+                "success": true,
+                "message": format!("Symbols refreshed for {}", exchange_name)
+            }))),
+            Err(e) => {
+                tracing::error!("Failed to refresh symbols for {}: {}", exchange_name, e);
+                Err(StatusCode::INTERNAL_SERVER_ERROR)
             }
-        }
+        },
         None => {
             // Refresh all exchanges
             let exchanges = state.get_exchange_info().await;
             for exchange in exchanges {
                 if let Err(e) = state.refresh_exchange_symbols(exchange.id.as_str()).await {
-                    tracing::warn!("Failed to refresh symbols for {}: {}", exchange.id.as_str(), e);
+                    tracing::warn!(
+                        "Failed to refresh symbols for {}: {}",
+                        exchange.id.as_str(),
+                        e
+                    );
                 }
             }
-            
+
             Ok(Json(serde_json::json!({
                 "success": true,
                 "message": "Symbols refresh initiated for all exchanges"
@@ -166,7 +176,7 @@ pub async fn refresh_symbols(
 
 fn get_popular_symbols() -> HashMap<String, Vec<SymbolInfo>> {
     let mut symbols = HashMap::new();
-    
+
     // Popular trading pairs for both exchanges
     let common_pairs = vec![
         ("BTC", "USDT", "Bitcoin"),
@@ -196,7 +206,7 @@ fn get_popular_symbols() -> HashMap<String, Vec<SymbolInfo>> {
         ("LINK", "BTC", "Chainlink"),
         ("DOT", "BTC", "Polkadot"),
     ];
-    
+
     let symbol_infos: Vec<SymbolInfo> = common_pairs
         .into_iter()
         .map(|(base, quote, name)| SymbolInfo {
@@ -206,10 +216,10 @@ fn get_popular_symbols() -> HashMap<String, Vec<SymbolInfo>> {
             display_name: format!("{} / {}", name, quote),
         })
         .collect();
-    
+
     // Both Binance and Bybit support these pairs
     symbols.insert("binance".to_string(), symbol_infos.clone());
     symbols.insert("bybit".to_string(), symbol_infos);
-    
+
     symbols
 }

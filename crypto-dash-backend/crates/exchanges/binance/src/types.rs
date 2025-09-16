@@ -93,9 +93,10 @@ mod tests {
     #[test]
     fn test_parse_24hr_ticker_message() {
         let raw_message = r#"{"e":"24hrTicker","E":1757888604019,"s":"BTCUSDT","p":"-21.48000000","P":"-0.019","w":"115669.75585612","x":"115853.45000000","c":"115831.96000000","Q":"0.00832000","b":"115831.96000000","B":"0.20337000","a":"115831.97000000","A":"12.85848000","o":"115853.44000000","h":"116165.19000000","l":"115141.80000000","v":"6348.13563000","q":"734287298.46364070","O":1757802204009,"C":1757888604009,"F":5231695487,"L":5232837353,"n":1141867}"#;
-        
-        let parsed: BinanceStreamMessage = serde_json::from_str(raw_message).expect("Failed to parse 24hr ticker message");
-        
+
+        let parsed: BinanceStreamMessage =
+            serde_json::from_str(raw_message).expect("Failed to parse 24hr ticker message");
+
         match parsed {
             BinanceStreamMessage::DirectTicker24hr(ticker) => {
                 assert_eq!(ticker.e, "24hrTicker");
@@ -112,9 +113,10 @@ mod tests {
     #[test]
     fn test_parse_eth_24hr_ticker_message() {
         let raw_message = r#"{"e":"24hrTicker","E":1757888604019,"s":"ETHUSDT","p":"-41.22000000","P":"-0.885","w":"4629.13557655","x":"4658.65000000","c":"4617.43000000","Q":"0.22000000","b":"4617.42000000","B":"0.00240000","a":"4617.43000000","A":"112.71210000","o":"4658.65000000","h":"4692.36000000","l":"4576.89000000","v":"278119.69690000","q":"1287453783.46015200","O":1757802204004,"C":1757888604004,"F":2846212739,"L":2848733731,"n":2520993}"#;
-        
-        let parsed: BinanceStreamMessage = serde_json::from_str(raw_message).expect("Failed to parse ETH 24hr ticker message");
-        
+
+        let parsed: BinanceStreamMessage =
+            serde_json::from_str(raw_message).expect("Failed to parse ETH 24hr ticker message");
+
         match parsed {
             BinanceStreamMessage::DirectTicker24hr(ticker) => {
                 assert_eq!(ticker.e, "24hrTicker");
@@ -131,9 +133,10 @@ mod tests {
     #[test]
     fn test_parse_regular_ticker_message() {
         let raw_message = r#"{"stream":"btcusdt@ticker","data":{"s":"BTCUSDT","c":"50000.00","b":"49999.00","a":"50001.00","B":"1.0","A":"2.0","E":1234567890}}"#;
-        
-        let parsed: BinanceStreamMessage = serde_json::from_str(raw_message).expect("Failed to parse regular ticker message");
-        
+
+        let parsed: BinanceStreamMessage =
+            serde_json::from_str(raw_message).expect("Failed to parse regular ticker message");
+
         match parsed {
             BinanceStreamMessage::Ticker { stream, data } => {
                 assert_eq!(stream, "btcusdt@ticker");
@@ -148,15 +151,15 @@ mod tests {
     fn test_original_error_messages() {
         // Test the exact messages from the original error log
         let btc_message = r#"{"e":"24hrTicker","E":1757888604019,"s":"BTCUSDT","p":"-21.48000000","P":"-0.019","w":"115669.75585612","x":"115853.45000000","c":"115831.96000000","Q":"0.00832000","b":"115831.96000000","B":"0.20337000","a":"115831.97000000","A":"12.85848000","o":"115853.44000000","h":"116165.19000000","l":"115141.80000000","v":"6348.13563000","q":"734287298.46364070","O":1757802204009,"C":1757888604009,"F":5231695487,"L":5232837353,"n":1141867}"#;
-        
+
         let eth_message = r#"{"e":"24hrTicker","E":1757888604019,"s":"ETHUSDT","p":"-41.22000000","P":"-0.885","w":"4629.13557655","x":"4658.65000000","c":"4617.43000000","Q":"0.22000000","b":"4617.42000000","B":"0.00240000","a":"4617.43000000","A":"112.71210000","o":"4658.65000000","h":"4692.36000000","l":"4576.89000000","v":"278119.69690000","q":"1287453783.46015200","O":1757802204004,"C":1757888604004,"F":2846212739,"L":2848733731,"n":2520993}"#;
-        
+
         // Both messages should now parse successfully
         let btc_parsed: BinanceStreamMessage = serde_json::from_str(btc_message)
             .expect("Failed to parse BTC 24hr ticker from original error");
         let eth_parsed: BinanceStreamMessage = serde_json::from_str(eth_message)
             .expect("Failed to parse ETH 24hr ticker from original error");
-        
+
         // Verify they are parsed as DirectTicker24hr
         match btc_parsed {
             BinanceStreamMessage::DirectTicker24hr(ticker) => {
@@ -166,7 +169,7 @@ mod tests {
             }
             _ => panic!("Expected DirectTicker24hr variant for BTC"),
         }
-        
+
         match eth_parsed {
             BinanceStreamMessage::DirectTicker24hr(ticker) => {
                 assert_eq!(ticker.e, "24hrTicker");

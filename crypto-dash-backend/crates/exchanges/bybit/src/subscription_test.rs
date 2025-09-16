@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod bybit_subscription_tests {
-    use crate::{BybitAdapter, types::BybitMessage};
+    use crate::{types::BybitMessage, BybitAdapter};
     use crypto_dash_core::model::{Channel, ChannelType, ExchangeId, Symbol};
     use crypto_dash_exchanges_common::ExchangeAdapter;
 
@@ -21,7 +21,10 @@ mod bybit_subscription_tests {
         let result = adapter.subscribe(&channels).await;
 
         // Should succeed (gracefully handles missing connection)
-        assert!(result.is_ok(), "Subscription should succeed even with broken connection");
+        assert!(
+            result.is_ok(),
+            "Subscription should succeed even with broken connection"
+        );
     }
 
     #[test]
@@ -49,7 +52,12 @@ mod bybit_subscription_tests {
         let parsed: BybitMessage = serde_json::from_str(json_message).unwrap();
 
         match parsed {
-            BybitMessage::Ticker { topic, ts, message_type, data } => {
+            BybitMessage::Ticker {
+                topic,
+                ts,
+                message_type,
+                data,
+            } => {
                 assert_eq!(topic, "tickers.SOLUSDT_SOL/USDT");
                 assert_eq!(ts, 1744168585009);
                 assert_eq!(message_type, "snapshot");

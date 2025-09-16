@@ -1,3 +1,3 @@
 pub mod mem;
 
-pub use mem::{MemoryCache, CacheHandle};
+pub use mem::{CacheHandle, MemoryCache};

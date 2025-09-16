@@ -1,14 +1,10 @@
 use anyhow::Result;
-use axum::{
-    http::StatusCode,
-    routing::get,
-    Router,
-};
+use axum::{http::StatusCode, routing::get, Router};
 use crypto_dash_core::model::{ExchangeInfo, SymbolResponse};
+use crypto_dash_integration_tests::create_test_app;
 use reqwest;
 use serde_json::Value;
 use std::time::Duration;
-use crypto_dash_integration_tests::create_test_app;
 
 /// Test health endpoint
 #[tokio::test]
@@ -24,7 +20,7 @@ async fn test_health_endpoint() -> Result<()> {
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     let body: Value = response.json().await?;
     assert_eq!(body["status"], "healthy");
     assert!(body["timestamp"].is_string());
@@ -40,13 +36,10 @@ async fn test_readiness_endpoint() -> Result<()> {
     let addr = server.local_addr();
 
     let client = reqwest::Client::new();
-    let response = client
-        .get(&format!("http://{}/ready", addr))
-        .send()
-        .await?;
+    let response = client.get(&format!("http://{}/ready", addr)).send().await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     let body: Value = response.json().await?;
     assert_eq!(body["status"], "ready");
     assert!(body["timestamp"].is_string());
@@ -68,18 +61,19 @@ async fn test_exchanges_endpoint() -> Result<()> {
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     let body: Value = response.json().await?;
     assert!(body["exchanges"].is_array());
-    
+
     let exchanges = body["exchanges"].as_array().unwrap();
     assert!(!exchanges.is_empty());
-    
+
     // Check that we have our test exchanges
-    let exchange_ids: Vec<String> = exchanges.iter()
+    let exchange_ids: Vec<String> = exchanges
+        .iter()
         .map(|e| e["id"].as_str().unwrap().to_string())
         .collect();
-    
+
     assert!(exchange_ids.contains(&"binance".to_string()));
     assert!(exchange_ids.contains(&"bybit".to_string()));
 
@@ -107,7 +101,7 @@ async fn test_symbols_endpoint_valid_exchange() -> Result<()> {
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     let body: SymbolResponse = response.json().await?;
     assert_eq!(body.exchange, "binance");
     assert!(!body.symbols.is_empty());
@@ -175,7 +169,7 @@ async fn test_cors_headers() -> Result<()> {
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     let headers = response.headers();
     assert!(headers.contains_key("access-control-allow-origin"));
     assert!(headers.contains_key("access-control-allow-methods"));
@@ -191,15 +185,13 @@ async fn test_concurrent_requests_handling() -> Result<()> {
     let addr = server.local_addr();
 
     let client = reqwest::Client::new();
-    
+
     // Send multiple concurrent requests
     let mut handles = Vec::new();
     for _ in 0..10 {
         let client = client.clone();
         let url = format!("http://{}/health", addr);
-        let handle = tokio::spawn(async move {
-            client.get(&url).send().await
-        });
+        let handle = tokio::spawn(async move { client.get(&url).send().await });
         handles.push(handle);
     }
 
@@ -230,7 +222,10 @@ async fn test_malformed_requests() -> Result<()> {
 
     // Test invalid query parameters
     let response = client
-        .get(&format!("http://{}/api/symbols?exchange=&invalid=value", addr))
+        .get(&format!(
+            "http://{}/api/symbols?exchange=&invalid=value",
+            addr
+        ))
         .send()
         .await?;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -250,10 +245,7 @@ async fn test_request_timeout() -> Result<()> {
         .build()?;
 
     // This should timeout quickly and demonstrate timeout handling
-    let result = client
-        .get(&format!("http://{}/health", addr))
-        .send()
-        .await;
+    let result = client.get(&format!("http://{}/health", addr)).send().await;
 
     // The request might succeed if it's very fast, or timeout
     // Both outcomes are acceptable for this test
@@ -285,7 +277,7 @@ async fn test_content_type_headers() -> Result<()> {
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     let content_type = response.headers().get("content-type").unwrap();
     assert!(content_type.to_str()?.contains("application/json"));
 
@@ -300,7 +292,7 @@ async fn test_large_response_handling() -> Result<()> {
     let addr = server.local_addr();
 
     let client = reqwest::Client::new();
-    
+
     // Request symbols which might be a large response
     let response = client
         .get(&format!("http://{}/api/symbols?exchange=binance", addr))
@@ -308,10 +300,10 @@ async fn test_large_response_handling() -> Result<()> {
         .await?;
 
     assert_eq!(response.status(), StatusCode::OK);
-    
+
     // Verify we can parse the full response
     let _body: SymbolResponse = response.json().await?;
-    
+
     Ok(())
 }
 

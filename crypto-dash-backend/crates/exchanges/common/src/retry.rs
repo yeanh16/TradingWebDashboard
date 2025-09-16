@@ -34,9 +34,10 @@ pub async fn exponential_backoff(attempt: u32, config: &RetryConfig) {
 }
 
 fn calculate_delay(attempt: u32, config: &RetryConfig) -> Duration {
-    let exponential_delay = config.base_delay.as_millis() as f64 * config.multiplier.powi(attempt as i32 - 1);
+    let exponential_delay =
+        config.base_delay.as_millis() as f64 * config.multiplier.powi(attempt as i32 - 1);
     let delay_ms = exponential_delay.min(config.max_delay.as_millis() as f64) as u64;
-    
+
     // Add jitter (±25%)
     let jitter_range = delay_ms / 4;
     let jitter = if jitter_range > 0 {
@@ -44,25 +45,22 @@ fn calculate_delay(attempt: u32, config: &RetryConfig) -> Duration {
     } else {
         0
     };
-    
+
     Duration::from_millis((delay_ms as i64 + jitter).max(0) as u64)
 }
 
 /// Retry a future with exponential backoff
-pub async fn retry_with_backoff<F, Fut, T, E>(
-    mut f: F,
-    config: RetryConfig,
-) -> Result<T, E>
+pub async fn retry_with_backoff<F, Fut, T, E>(mut f: F, config: RetryConfig) -> Result<T, E>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<T, E>>,
     E: std::fmt::Debug,
 {
     let mut attempts = 0;
-    
+
     loop {
         attempts += 1;
-        
+
         match f().await {
             Ok(result) => return Ok(result),
             Err(e) => {
@@ -70,7 +68,7 @@ where
                     debug!("Max retry attempts ({}) reached", config.max_attempts);
                     return Err(e);
                 }
-                
+
                 debug!("Attempt {} failed: {:?}", attempts, e);
                 exponential_backoff(attempts, &config).await;
             }
@@ -85,11 +83,11 @@ mod tests {
     #[test]
     fn test_calculate_delay() {
         let config = RetryConfig::default();
-        
+
         // First attempt should be base delay
         let delay1 = calculate_delay(1, &config);
         assert!(delay1.as_millis() >= 75 && delay1.as_millis() <= 125); // ±25% jitter
-        
+
         // Second attempt should be roughly double
         let delay2 = calculate_delay(2, &config);
         assert!(delay2.as_millis() >= 150 && delay2.as_millis() <= 250);
@@ -98,7 +96,7 @@ mod tests {
     #[tokio::test]
     async fn test_retry_success() {
         let mut call_count = 0;
-        
+
         let result = retry_with_backoff(
             || {
                 call_count += 1;
@@ -116,8 +114,9 @@ mod tests {
                 max_delay: Duration::from_millis(10),
                 multiplier: 2.0,
             },
-        ).await;
-        
+        )
+        .await;
+
         assert_eq!(result, Ok("success"));
         assert_eq!(call_count, 3);
     }
@@ -125,7 +124,7 @@ mod tests {
     #[tokio::test]
     async fn test_retry_failure() {
         let mut call_count = 0;
-        
+
         let result: Result<&str, &str> = retry_with_backoff(
             || {
                 call_count += 1;
@@ -137,8 +136,9 @@ mod tests {
                 max_delay: Duration::from_millis(10),
                 multiplier: 2.0,
             },
-        ).await;
-        
+        )
+        .await;
+
         assert_eq!(result, Err("always fails"));
         assert_eq!(call_count, 3);
     }
@@ -166,7 +166,7 @@ mod rand {
                     SystemTime::now()
                         .duration_since(UNIX_EPOCH)
                         .unwrap_or_default()
-                        .as_nanos() as u64
+                        .as_nanos() as u64,
                 );
             seed.set(next);
             T::from(next)

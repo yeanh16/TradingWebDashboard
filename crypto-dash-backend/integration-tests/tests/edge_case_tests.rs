@@ -27,7 +27,7 @@ async fn test_cache_high_load() -> Result<()> {
                 bid_size: 1.0,
                 ask_size: 1.0,
             };
-            
+
             cache_handle.store_ticker(ticker).await
         });
         handles.push(handle);
@@ -66,10 +66,10 @@ async fn test_memory_usage_stability() -> Result<()> {
             bid_size: 1.0,
             ask_size: 1.0,
         };
-        
+
         cache_handle.store_ticker(ticker).await?;
         counter += 1;
-        
+
         // Small delay to prevent overwhelming the system
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
@@ -117,7 +117,12 @@ async fn test_stream_hub_subscriber_failures() -> Result<()> {
         symbol: Symbol::new("BTC", "USDT"),
     });
 
-    hub_handle.publish(topic, crypto_dash_core::model::StreamMessage::Ticker { payload: ticker }).await?;
+    hub_handle
+        .publish(
+            topic,
+            crypto_dash_core::model::StreamMessage::Ticker { payload: ticker },
+        )
+        .await?;
 
     // Remaining subscribers should still receive the message
     for mut subscriber in subscribers {
@@ -140,10 +145,10 @@ async fn test_concurrent_stream_subscriptions() -> Result<()> {
         let hub_handle = hub_handle.clone();
         let handle = tokio::spawn(async move {
             let mut receiver = hub_handle.subscribe_all().await;
-            
+
             // Wait for a message or timeout
             let result = timeout(Duration::from_millis(100), receiver.recv()).await;
-            
+
             // We don't expect messages in this test, just testing subscription creation
             result.is_err() // Timeout is expected
         });
@@ -163,9 +168,7 @@ async fn test_concurrent_stream_subscriptions() -> Result<()> {
 #[tokio::test]
 async fn test_malformed_data_handling() -> Result<()> {
     // Test invalid symbol creation
-    let result = std::panic::catch_unwind(|| {
-        Symbol::new("", "USDT")
-    });
+    let result = std::panic::catch_unwind(|| Symbol::new("", "USDT"));
     assert!(result.is_err() || Symbol::new("", "USDT").base.is_empty());
 
     // Test invalid ticker data
@@ -193,7 +196,8 @@ async fn test_malformed_data_handling() -> Result<()> {
 async fn test_exchange_adapter_error_recovery() -> Result<()> {
     use crypto_dash_exchanges_common::retry::ExponentialBackoff;
 
-    let mut backoff = ExponentialBackoff::new(Duration::from_millis(10), Duration::from_millis(100));
+    let mut backoff =
+        ExponentialBackoff::new(Duration::from_millis(10), Duration::from_millis(100));
 
     // Test backoff progression
     let delay1 = backoff.next_delay();
@@ -228,7 +232,7 @@ async fn test_data_consistency_rapid_updates() -> Result<()> {
             bid_size: 1.0,
             ask_size: 1.0,
         };
-        
+
         cache_handle.store_ticker(ticker).await?;
     }
 
@@ -255,7 +259,7 @@ async fn test_resource_cleanup() -> Result<()> {
 
     // The hub should still be functional
     let mut final_receiver = hub_handle.subscribe_all().await;
-    
+
     // Publish a test message
     let ticker = Ticker {
         timestamp: chrono::Utc::now(),
@@ -274,7 +278,12 @@ async fn test_resource_cleanup() -> Result<()> {
         symbol: Symbol::new("BTC", "USDT"),
     });
 
-    hub_handle.publish(topic, crypto_dash_core::model::StreamMessage::Ticker { payload: ticker }).await?;
+    hub_handle
+        .publish(
+            topic,
+            crypto_dash_core::model::StreamMessage::Ticker { payload: ticker },
+        )
+        .await?;
 
     // Should still receive the message
     let result = timeout(Duration::from_secs(1), final_receiver.recv()).await;
@@ -288,7 +297,7 @@ async fn test_resource_cleanup() -> Result<()> {
 async fn test_extreme_load_handling() -> Result<()> {
     let cache = MemoryCache::new();
     let cache_handle = cache.start().await?;
-    
+
     let stream_hub = StreamHub::new();
     let hub_handle = stream_hub.start().await?;
 
@@ -311,17 +320,22 @@ async fn test_extreme_load_handling() -> Result<()> {
                     bid_size: 1.0,
                     ask_size: 1.0,
                 };
-                
+
                 let _ = cache_handle.store_ticker(ticker.clone()).await;
-                
+
                 let topic = crypto_dash_stream_hub::topics::TopicKey::from_channel(&Channel {
                     channel_type: ChannelType::Ticker,
                     exchange: ExchangeId::from("binance"),
                     symbol: Symbol::new("BTC", "USDT"),
                 });
 
-                let _ = hub_handle.publish(topic, crypto_dash_core::model::StreamMessage::Ticker { payload: ticker }).await;
-                
+                let _ = hub_handle
+                    .publish(
+                        topic,
+                        crypto_dash_core::model::StreamMessage::Ticker { payload: ticker },
+                    )
+                    .await;
+
                 // Small delay to prevent overwhelming
                 tokio::time::sleep(Duration::from_micros(100)).await;
             }
@@ -335,7 +349,7 @@ async fn test_extreme_load_handling() -> Result<()> {
         let handle = tokio::spawn(async move {
             let mut receiver = hub_handle.subscribe_all().await;
             let mut count = 0;
-            
+
             while count < 50 {
                 if let Ok(_) = timeout(Duration::from_millis(10), receiver.recv()).await {
                     count += 1;
@@ -375,7 +389,7 @@ async fn test_graceful_degradation() -> Result<()> {
             bid_size: 1.0,
             ask_size: 1.0,
         };
-        
+
         cache_handle.store_ticker(ticker).await?;
     }
 
@@ -385,7 +399,9 @@ async fn test_graceful_degradation() -> Result<()> {
 
     // Should be able to retrieve recent data
     let symbol = Symbol::new("SYM999", "USDT");
-    let result = cache_handle.get_ticker(&ExchangeId::from("binance"), &symbol).await?;
+    let result = cache_handle
+        .get_ticker(&ExchangeId::from("binance"), &symbol)
+        .await?;
     assert!(result.is_some());
 
     Ok(())

@@ -1,12 +1,12 @@
 use crypto_dash_core::{
-    model::{Symbol, Ticker, StreamMessage, ExchangeId},
+    model::{ExchangeId, StreamMessage, Symbol, Ticker},
     time::now,
 };
 use crypto_dash_stream_hub::{HubHandle, Topic};
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::time::Duration;
-use tokio::time::{interval};
+use tokio::time::interval;
 use tracing::info;
 
 /// Mock data generator for exchanges when real connections are not available
@@ -54,11 +54,14 @@ impl MockDataGenerator {
     }
 
     pub async fn start(&self) {
-        info!("Starting mock data generator for exchange: {}", self.exchange_id.as_str());
-        
+        info!(
+            "Starting mock data generator for exchange: {}",
+            self.exchange_id.as_str()
+        );
+
         let mut interval = interval(Duration::from_millis(1000)); // Update every second
         let generator = self.clone();
-        
+
         tokio::spawn(async move {
             loop {
                 interval.tick().await;
@@ -72,8 +75,10 @@ impl MockDataGenerator {
             if let Some(base_price) = self.base_prices.get(&symbol.base) {
                 let ticker = self.create_mock_ticker(symbol, *base_price);
                 let topic = Topic::ticker(self.exchange_id.clone(), symbol.clone());
-                
-                self.hub.publish(&topic, StreamMessage::Ticker(ticker)).await;
+
+                self.hub
+                    .publish(&topic, StreamMessage::Ticker(ticker))
+                    .await;
             }
         }
     }
@@ -81,19 +86,23 @@ impl MockDataGenerator {
     fn create_mock_ticker(&self, symbol: &Symbol, base_price: Decimal) -> Ticker {
         // Generate realistic price variations (±1.5%) to simulate live market movement
         let variation = (rand::random::<f64>() - 0.5) * 0.03; // -1.5% to +1.5%
-        let price_factor = Decimal::from_str(&(1.0 + variation).to_string()).unwrap_or(Decimal::ONE);
+        let price_factor =
+            Decimal::from_str(&(1.0 + variation).to_string()).unwrap_or(Decimal::ONE);
         let current_price = base_price * price_factor;
-        
+
         // Generate realistic bid/ask spread (0.01% to 0.05%)
-        let spread_factor = Decimal::from_str(&(0.0001 + rand::random::<f64>() * 0.0004).to_string()).unwrap();
+        let spread_factor =
+            Decimal::from_str(&(0.0001 + rand::random::<f64>() * 0.0004).to_string()).unwrap();
         let spread = current_price * spread_factor;
-        
+
         let bid = current_price - spread / Decimal::TWO;
         let ask = current_price + spread / Decimal::TWO;
-        
+
         // Generate realistic volumes
-        let bid_size = Decimal::from_str(&(0.1 + rand::random::<f64>() * 10.0).to_string()).unwrap();
-        let ask_size = Decimal::from_str(&(0.1 + rand::random::<f64>() * 10.0).to_string()).unwrap();
+        let bid_size =
+            Decimal::from_str(&(0.1 + rand::random::<f64>() * 10.0).to_string()).unwrap();
+        let ask_size =
+            Decimal::from_str(&(0.1 + rand::random::<f64>() * 10.0).to_string()).unwrap();
 
         Ticker {
             timestamp: now(),

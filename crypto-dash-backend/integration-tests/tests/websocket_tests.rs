@@ -5,13 +5,15 @@ use axum::{
     routing::get,
     Router,
 };
-use crypto_dash_core::model::{Channel, ChannelType, ClientMessage, ExchangeId, StreamMessage, Symbol};
+use crypto_dash_core::model::{
+    Channel, ChannelType, ClientMessage, ExchangeId, StreamMessage, Symbol,
+};
+use crypto_dash_integration_tests::create_test_app;
 use futures::{SinkExt, StreamExt};
 use serde_json;
 use std::time::Duration;
 use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message as TungsteniteMessage};
-use crypto_dash_integration_tests::create_test_app;
 
 /// Test WebSocket connection lifecycle
 #[tokio::test]
@@ -90,7 +92,9 @@ async fn test_subscription_workflow() -> Result<()> {
         channels: vec![channel.clone()],
     };
     let subscribe_text = serde_json::to_string(&subscribe_msg)?;
-    ws_sink.send(TungsteniteMessage::Text(subscribe_text)).await?;
+    ws_sink
+        .send(TungsteniteMessage::Text(subscribe_text))
+        .await?;
 
     // Should get subscription confirmation
     let response = timeout(Duration::from_secs(5), ws_stream.next()).await??;
@@ -112,7 +116,9 @@ async fn test_subscription_workflow() -> Result<()> {
         channels: vec![channel],
     };
     let unsubscribe_text = serde_json::to_string(&unsubscribe_msg)?;
-    ws_sink.send(TungsteniteMessage::Text(unsubscribe_text)).await?;
+    ws_sink
+        .send(TungsteniteMessage::Text(unsubscribe_text))
+        .await?;
 
     // Should get unsubscription confirmation
     let response = timeout(Duration::from_secs(5), ws_stream.next()).await??;
@@ -147,7 +153,9 @@ async fn test_invalid_message_handling() -> Result<()> {
     let _ = timeout(Duration::from_secs(1), ws_stream.next()).await?;
 
     // Send invalid JSON
-    ws_sink.send(TungsteniteMessage::Text("invalid json".to_string())).await?;
+    ws_sink
+        .send(TungsteniteMessage::Text("invalid json".to_string()))
+        .await?;
 
     // Should get error message
     let response = timeout(Duration::from_secs(5), ws_stream.next()).await??;
@@ -175,16 +183,16 @@ async fn test_concurrent_connections() -> Result<()> {
     let addr = server.local_addr();
 
     let ws_url = format!("ws://{}/ws", addr);
-    
+
     // Create multiple connections
     let mut connections = Vec::new();
     for _ in 0..5 {
         let (ws_stream, _) = connect_async(&ws_url).await?;
         let (mut ws_sink, mut ws_stream) = ws_stream.split();
-        
+
         // Skip welcome message
         let _ = timeout(Duration::from_secs(1), ws_stream.next()).await?;
-        
+
         connections.push((ws_sink, ws_stream));
     }
 
@@ -230,7 +238,9 @@ async fn test_binary_message_rejection() -> Result<()> {
     let _ = timeout(Duration::from_secs(1), ws_stream.next()).await?;
 
     // Send binary message
-    ws_sink.send(TungsteniteMessage::Binary(vec![1, 2, 3, 4])).await?;
+    ws_sink
+        .send(TungsteniteMessage::Binary(vec![1, 2, 3, 4]))
+        .await?;
 
     // Connection should remain open (binary messages are ignored)
     // Send a ping to verify connection is still active

@@ -37,7 +37,8 @@ impl HubHandle {
 
     /// Get the number of subscribers for a topic
     pub fn subscriber_count(&self, topic: &Topic) -> usize {
-        self.inner.topics
+        self.inner
+            .topics
             .get(&topic.key())
             .map(|entry| entry.value().sender.receiver_count())
             .unwrap_or(0)
@@ -101,7 +102,7 @@ impl StreamHubInner {
 
     async fn publish(&self, topic: &Topic, message: StreamMessage) {
         let topic_key = topic.key();
-        
+
         // Publish to specific topic subscribers
         if let Some(entry) = self.topics.get(&topic_key) {
             match entry.sender.send(message.clone()) {
@@ -117,7 +118,7 @@ impl StreamHubInner {
                 }
             }
         }
-        
+
         // Also publish to global subscribers (like WebSocket clients)
         match self.global_sender.send((topic.clone(), message)) {
             Ok(subscriber_count) => {
@@ -135,14 +136,14 @@ impl StreamHubInner {
 
     async fn subscribe(&self, topic: &Topic) -> SubscriberHandle {
         let topic_key = topic.key();
-        
+
         let receiver = {
             let entry = self.topics.entry(topic_key.clone()).or_insert_with(|| {
                 let (sender, _) = broadcast::channel(CHANNEL_CAPACITY);
                 debug!(topic = %topic_key, "Created new topic channel");
                 TopicChannel { sender }
             });
-            
+
             entry.sender.subscribe()
         };
 
@@ -163,16 +164,13 @@ impl StreamHubInner {
     async fn subscribe_all(&self) -> GlobalSubscriberHandle {
         let id = Uuid::new_v4();
         let receiver = self.global_sender.subscribe();
-        
+
         debug!(
             subscriber_id = %id,
             "New global subscriber"
         );
 
-        GlobalSubscriberHandle {
-            id,
-            receiver,
-        }
+        GlobalSubscriberHandle { id, receiver }
     }
 }
 
@@ -220,14 +218,11 @@ mod tests {
     async fn test_hub_publish_subscribe() {
         let hub = StreamHub::new();
         let handle = hub.handle();
-        
-        let topic = Topic::ticker(
-            ExchangeId::from("binance"),
-            Symbol::new("BTC", "USDT")
-        );
+
+        let topic = Topic::ticker(ExchangeId::from("binance"), Symbol::new("BTC", "USDT"));
 
         let mut subscriber = handle.subscribe(&topic).await;
-        
+
         let ticker = Ticker {
             timestamp: now(),
             exchange: ExchangeId::from("binance"),
@@ -239,8 +234,10 @@ mod tests {
             ask_size: Decimal::new(1, 0),
         };
 
-        handle.publish(&topic, StreamMessage::Ticker(ticker.clone())).await;
-        
+        handle
+            .publish(&topic, StreamMessage::Ticker(ticker.clone()))
+            .await;
+
         let received = subscriber.recv().await.unwrap();
         match received {
             StreamMessage::Ticker(received_ticker) => {
@@ -255,15 +252,12 @@ mod tests {
     async fn test_multiple_subscribers() {
         let hub = StreamHub::new();
         let handle = hub.handle();
-        
-        let topic = Topic::ticker(
-            ExchangeId::from("binance"),
-            Symbol::new("BTC", "USDT")
-        );
+
+        let topic = Topic::ticker(ExchangeId::from("binance"), Symbol::new("BTC", "USDT"));
 
         let mut sub1 = handle.subscribe(&topic).await;
         let mut sub2 = handle.subscribe(&topic).await;
-        
+
         assert_eq!(handle.subscriber_count(&topic), 2);
 
         let ticker = Ticker {
@@ -278,7 +272,7 @@ mod tests {
         };
 
         handle.publish(&topic, StreamMessage::Ticker(ticker)).await;
-        
+
         // Both subscribers should receive the message
         let _ = sub1.recv().await.unwrap();
         let _ = sub2.recv().await.unwrap();

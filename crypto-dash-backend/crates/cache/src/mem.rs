@@ -1,6 +1,6 @@
-use crypto_dash_core::model::{ExchangeId, Symbol, Ticker, OrderBookSnapshot};
+use crypto_dash_core::model::{ExchangeId, OrderBookSnapshot, Symbol, Ticker};
 use dashmap::DashMap;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tracing::debug;
 
@@ -64,37 +64,63 @@ impl CacheHandle {
     /// Store a ticker in the cache
     pub async fn set_ticker(&self, ticker: Ticker) {
         let key = TickerKey::new(ticker.exchange.clone(), ticker.symbol.clone());
-        debug!("Cached ticker for {}/{}", ticker.exchange.as_str(), ticker.symbol.canonical());
+        debug!(
+            "Cached ticker for {}/{}",
+            ticker.exchange.as_str(),
+            ticker.symbol.canonical()
+        );
         self.inner.tickers.insert(key, ticker);
     }
 
     /// Get a ticker from the cache
     pub async fn get_ticker(&self, exchange: &ExchangeId, symbol: &Symbol) -> Option<Ticker> {
         let key = TickerKey::new(exchange.clone(), symbol.clone());
-        self.inner.tickers.get(&key).map(|entry| entry.value().clone())
+        self.inner
+            .tickers
+            .get(&key)
+            .map(|entry| entry.value().clone())
     }
 
     /// Store an order book snapshot in the cache
     pub async fn set_orderbook(&self, orderbook: OrderBookSnapshot) {
         let key = OrderBookKey::new(orderbook.exchange.clone(), orderbook.symbol.clone());
-        debug!("Cached orderbook for {}/{}", orderbook.exchange.as_str(), orderbook.symbol.canonical());
+        debug!(
+            "Cached orderbook for {}/{}",
+            orderbook.exchange.as_str(),
+            orderbook.symbol.canonical()
+        );
         self.inner.orderbooks.insert(key, orderbook);
     }
 
     /// Get an order book snapshot from the cache
-    pub async fn get_orderbook(&self, exchange: &ExchangeId, symbol: &Symbol) -> Option<OrderBookSnapshot> {
+    pub async fn get_orderbook(
+        &self,
+        exchange: &ExchangeId,
+        symbol: &Symbol,
+    ) -> Option<OrderBookSnapshot> {
         let key = OrderBookKey::new(exchange.clone(), symbol.clone());
-        self.inner.orderbooks.get(&key).map(|entry| entry.value().clone())
+        self.inner
+            .orderbooks
+            .get(&key)
+            .map(|entry| entry.value().clone())
     }
 
     /// Get all cached tickers
     pub async fn get_all_tickers(&self) -> Vec<Ticker> {
-        self.inner.tickers.iter().map(|entry| entry.value().clone()).collect()
+        self.inner
+            .tickers
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// Get all cached order books
     pub async fn get_all_orderbooks(&self) -> Vec<OrderBookSnapshot> {
-        self.inner.orderbooks.iter().map(|entry| entry.value().clone()).collect()
+        self.inner
+            .orderbooks
+            .iter()
+            .map(|entry| entry.value().clone())
+            .collect()
     }
 
     /// Clear all cached data
@@ -192,10 +218,10 @@ mod tests {
         };
 
         handle.set_ticker(ticker.clone()).await;
-        
+
         let cached = handle.get_ticker(&ticker.exchange, &ticker.symbol).await;
         assert!(cached.is_some());
-        
+
         let cached_ticker = cached.unwrap();
         assert_eq!(cached_ticker.bid, ticker.bid);
         assert_eq!(cached_ticker.ask, ticker.ask);
@@ -222,7 +248,7 @@ mod tests {
         };
 
         handle.set_ticker(ticker).await;
-        
+
         let stats = handle.stats().await;
         assert_eq!(stats.ticker_count, 1);
     }

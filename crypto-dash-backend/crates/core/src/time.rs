@@ -24,7 +24,7 @@ mod tests {
         let now = now();
         let millis = to_millis(now);
         let converted = from_millis(millis).unwrap();
-        
+
         // Allow for small precision differences
         assert!((now.timestamp_millis() - converted.timestamp_millis()).abs() < 2);
     }

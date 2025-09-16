@@ -5,14 +5,14 @@ pub struct BybitTicker {
     pub symbol: String,
     #[serde(rename = "lastPrice")]
     pub last_price: String,
-    #[serde(rename = "bidPrice")]
-    pub bid_price: String,
-    #[serde(rename = "askPrice")]
-    pub ask_price: String,
-    #[serde(rename = "bidSize")]
-    pub bid_size: String,
-    #[serde(rename = "askSize")]
-    pub ask_size: String,
+    #[serde(rename = "bidPrice", default)]
+    pub bid_price: Option<String>,
+    #[serde(rename = "askPrice", default)]
+    pub ask_price: Option<String>,
+    #[serde(rename = "bidSize", default)]
+    pub bid_size: Option<String>,
+    #[serde(rename = "askSize", default)]
+    pub ask_size: Option<String>,
     #[serde(rename = "highPrice24h")]
     pub high_price_24h: String,
     #[serde(rename = "lowPrice24h")]

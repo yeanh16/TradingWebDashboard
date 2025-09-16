@@ -25,10 +25,9 @@ async fn main() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| {
-                    "crypto_dash=debug,tower_http=debug,axum::rejection=trace".into()
-                })
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                "crypto_dash=debug,tower_http=debug,axum::rejection=trace".into()
+            }),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -53,13 +52,17 @@ async fn main() -> Result<()> {
         match exchange_name.as_str() {
             "binance" => {
                 let adapter = Arc::new(BinanceAdapter::new());
-                adapter.start(hub_handle.clone(), cache_handle.clone()).await?;
+                adapter
+                    .start(hub_handle.clone(), cache_handle.clone())
+                    .await?;
                 app_state.add_exchange(adapter);
                 info!("Initialized Binance adapter");
             }
             "bybit" => {
                 let adapter = Arc::new(BybitAdapter::new());
-                adapter.start(hub_handle.clone(), cache_handle.clone()).await?;
+                adapter
+                    .start(hub_handle.clone(), cache_handle.clone())
+                    .await?;
                 app_state.add_exchange(adapter);
                 info!("Initialized Bybit adapter");
             }
@@ -72,7 +75,10 @@ async fn main() -> Result<()> {
     // Load symbol metadata for all exchanges
     info!("Loading symbol metadata for all exchanges...");
     if let Err(e) = app_state.load_symbol_metadata().await {
-        tracing::warn!("Failed to load symbol metadata: {}. Continuing with fallback data.", e);
+        tracing::warn!(
+            "Failed to load symbol metadata: {}. Continuing with fallback data.",
+            e
+        );
     } else {
         info!("Symbol metadata loaded successfully");
     }
@@ -96,7 +102,7 @@ async fn main() -> Result<()> {
     // Start the server
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
     info!("Server listening on {}", config.bind_addr);
-    
+
     axum::serve(listener, app).await?;
 
     Ok(())

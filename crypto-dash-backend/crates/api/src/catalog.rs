@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use crypto_dash_cache::CacheHandle;
 use crypto_dash_core::model::{ExchangeId, SymbolMeta};
 use crypto_dash_core::normalize::precision_from_tick_size;
@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, warn, error};
+use tracing::{error, info, warn};
 
 /// Raw symbol data from Binance API
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -93,28 +93,34 @@ impl ExchangeCatalog {
     }
 
     /// Load symbol metadata for all exchanges
-    pub async fn load_all(&self, exchanges: &HashMap<String, Arc<dyn ExchangeAdapter>>) -> Result<()> {
+    pub async fn load_all(
+        &self,
+        exchanges: &HashMap<String, Arc<dyn ExchangeAdapter>>,
+    ) -> Result<()> {
         info!("Loading symbol metadata for all exchanges");
-        
+
         for (exchange_name, _adapter) in exchanges {
             if let Err(e) = self.load_exchange_symbols(exchange_name).await {
                 error!("Failed to load symbols for {}: {}", exchange_name, e);
                 // Try to load from cache
                 if let Err(cache_err) = self.load_from_cache(exchange_name).await {
-                    warn!("Failed to load symbols from cache for {}: {}", exchange_name, cache_err);
+                    warn!(
+                        "Failed to load symbols from cache for {}: {}",
+                        exchange_name, cache_err
+                    );
                     // Load fallback symbols
                     self.load_fallback_symbols(exchange_name).await;
                 }
             }
         }
-        
+
         Ok(())
     }
 
     /// Load symbol metadata for a specific exchange
     pub async fn load_exchange_symbols(&self, exchange_name: &str) -> Result<()> {
         info!("Loading symbols for exchange: {}", exchange_name);
-        
+
         let symbols = match exchange_name {
             "binance" => self.fetch_binance_symbols().await?,
             "bybit" => self.fetch_bybit_symbols().await?,
@@ -140,11 +146,9 @@ impl ExchangeCatalog {
     /// Get symbols for specific exchange(s)
     pub async fn get_symbols(&self, exchange: Option<&str>) -> Vec<SymbolMeta> {
         let cache = self.symbol_cache.read().await;
-        
+
         match exchange {
-            Some(exchange_name) => {
-                cache.get(exchange_name).cloned().unwrap_or_default()
-            }
+            Some(exchange_name) => cache.get(exchange_name).cloned().unwrap_or_default(),
             None => {
                 let mut all_symbols = Vec::new();
                 for symbols in cache.values() {
@@ -165,20 +169,20 @@ impl ExchangeCatalog {
         let url = "https://api.binance.com/api/v3/exchangeInfo";
         let response = self.client.get(url).send().await?;
         let exchange_info: BinanceExchangeInfo = response.json().await?;
-        
+
         let mut symbols = Vec::new();
         let exchange_id = ExchangeId::from("binance");
-        
+
         for symbol in exchange_info.symbols {
             // Clone the symbol for serialization before moving parts
             let symbol_for_info = symbol.clone();
-            
+
             // Find relevant filters
             let mut tick_size = "0.01".to_string();
             let mut min_qty = Decimal::from_str("0.001").unwrap_or_default();
             let mut step_size = Decimal::from_str("0.001").unwrap_or_default();
             let mut filters_map = HashMap::new();
-            
+
             for filter in &symbol.filters {
                 match filter.filter_type.as_str() {
                     "PRICE_FILTER" => {
@@ -196,15 +200,15 @@ impl ExchangeCatalog {
                     }
                     _ => {}
                 }
-                
+
                 // Store all filter info
                 if let Ok(filter_json) = serde_json::to_string(&filter) {
                     filters_map.insert(filter.filter_type.clone(), filter_json);
                 }
             }
-            
+
             let price_precision = precision_from_tick_size(&tick_size).unwrap_or(2);
-            
+
             let symbol_meta = SymbolMeta {
                 exchange: exchange_id.clone(),
                 symbol: symbol.symbol,
@@ -217,10 +221,10 @@ impl ExchangeCatalog {
                 filters: Some(filters_map),
                 info: serde_json::to_value(&symbol_for_info).unwrap_or(Value::Null),
             };
-            
+
             symbols.push(symbol_meta);
         }
-        
+
         Ok(symbols)
     }
 
@@ -228,33 +232,36 @@ impl ExchangeCatalog {
         let url = "https://api.bybit.com/v5/market/instruments-info?category=spot";
         let response = self.client.get(url).send().await?;
         let bybit_response: BybitResponse = response.json().await?;
-        
+
         let mut symbols = Vec::new();
         let exchange_id = ExchangeId::from("bybit");
-        
+
         for symbol in bybit_response.result.list {
             // Clone the symbol for serialization before moving parts
             let symbol_for_info = symbol.clone();
-            
-            let tick_size = symbol.price_filter
+
+            let tick_size = symbol
+                .price_filter
                 .as_ref()
                 .map(|pf| pf.tick_size.clone())
                 .unwrap_or_else(|| "0.01".to_string());
-                
-            let min_qty = symbol.lot_size_filter
+
+            let min_qty = symbol
+                .lot_size_filter
                 .as_ref()
                 .and_then(|lsf| lsf.min_order_qty.as_ref())
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_else(|| Decimal::from_str("0.001").unwrap());
 
-            let step_size = symbol.lot_size_filter
+            let step_size = symbol
+                .lot_size_filter
                 .as_ref()
                 .and_then(|lsf| lsf.qty_step.as_ref())
                 .and_then(|s| Decimal::from_str(s).ok())
                 .unwrap_or_else(|| Decimal::from_str("0.001").unwrap());
-            
+
             let price_precision = precision_from_tick_size(&tick_size).unwrap_or(2);
-            
+
             let mut filters_map = HashMap::new();
             if let Some(pf) = &symbol.price_filter {
                 if let Ok(filter_json) = serde_json::to_string(pf) {
@@ -266,7 +273,7 @@ impl ExchangeCatalog {
                     filters_map.insert("LOT_SIZE".to_string(), filter_json);
                 }
             }
-            
+
             let symbol_meta = SymbolMeta {
                 exchange: exchange_id.clone(),
                 symbol: symbol.symbol,
@@ -279,10 +286,10 @@ impl ExchangeCatalog {
                 filters: Some(filters_map),
                 info: serde_json::to_value(&symbol_for_info).unwrap_or(Value::Null),
             };
-            
+
             symbols.push(symbol_meta);
         }
-        
+
         Ok(symbols)
     }
 
@@ -300,7 +307,7 @@ impl ExchangeCatalog {
 
     async fn load_fallback_symbols(&self, exchange_name: &str) {
         warn!("Loading fallback symbols for {}", exchange_name);
-        
+
         // Create minimal fallback symbols
         let exchange_id = ExchangeId::from(exchange_name);
         let fallback_symbols = vec![
@@ -329,7 +336,7 @@ impl ExchangeCatalog {
                 info: Value::Null,
             },
         ];
-        
+
         let mut cache = self.symbol_cache.write().await;
         cache.insert(exchange_name.to_string(), fallback_symbols);
     }
@@ -352,7 +359,7 @@ mod tests {
         let cache = MemoryCache::new();
         let cache_handle = cache.start().await.unwrap();
         let catalog = ExchangeCatalog::new(cache_handle);
-        
+
         // Test that empty symbols are returned initially
         let symbols = catalog.get_symbols(Some("binance")).await;
         assert!(symbols.is_empty());

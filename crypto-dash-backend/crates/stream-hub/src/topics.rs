@@ -57,11 +57,8 @@ mod tests {
 
     #[test]
     fn test_topic_key() {
-        let topic = Topic::ticker(
-            ExchangeId::from("binance"),
-            Symbol::new("BTC", "USDT")
-        );
-        
+        let topic = Topic::ticker(ExchangeId::from("binance"), Symbol::new("BTC", "USDT"));
+
         assert_eq!(topic.key(), "ticker:binance:BTC-USDT");
     }
 

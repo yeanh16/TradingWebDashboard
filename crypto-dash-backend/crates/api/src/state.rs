@@ -30,13 +30,17 @@ impl AppState {
 
     pub fn add_exchange(&mut self, adapter: Arc<dyn ExchangeAdapter>) {
         let id = adapter.id().as_str().to_string();
-        tracing::info!("Adding exchange adapter: '{}' -> '{}'", adapter.id().as_str(), id);
+        tracing::info!(
+            "Adding exchange adapter: '{}' -> '{}'",
+            adapter.id().as_str(),
+            id
+        );
         self.exchanges.insert(id, adapter);
     }
 
     pub async fn get_exchange_info(&self) -> Vec<ExchangeInfo> {
         let mut exchanges = Vec::new();
-        
+
         for (id, adapter) in &self.exchanges {
             let info = ExchangeInfo {
                 id: adapter.id(),
@@ -52,7 +56,7 @@ impl AppState {
             };
             exchanges.push(info);
         }
-        
+
         exchanges
     }
 

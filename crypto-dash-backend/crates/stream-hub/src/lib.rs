@@ -1,5 +1,5 @@
 pub mod hub;
 pub mod topics;
 
-pub use hub::{StreamHub, HubHandle, SubscriberHandle};
+pub use hub::{HubHandle, StreamHub, SubscriberHandle};
 pub use topics::Topic;

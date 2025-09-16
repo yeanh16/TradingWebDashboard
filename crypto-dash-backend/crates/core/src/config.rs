@@ -25,7 +25,8 @@ impl Config {
                 .unwrap_or_else(|_| "false".to_string())
                 .parse()
                 .unwrap_or(false),
-            redis_url: env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),
+            redis_url: env::var("REDIS_URL")
+                .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),
             book_depth_default: env::var("BOOK_DEPTH_DEFAULT")
                 .unwrap_or_else(|_| "50".to_string())
                 .parse()

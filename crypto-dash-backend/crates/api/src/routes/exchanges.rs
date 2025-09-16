@@ -1,9 +1,5 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-};
 use crate::state::AppState;
+use axum::{extract::State, http::StatusCode, response::Json};
 use crypto_dash_core::model::ExchangeInfo;
 
 /// GET /api/exchanges - List supported exchanges and their status

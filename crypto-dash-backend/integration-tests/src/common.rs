@@ -5,8 +5,8 @@ use crypto_dash_api::state::AppState;
 use crypto_dash_binance::BinanceAdapter;
 use crypto_dash_bybit::BybitAdapter;
 use crypto_dash_cache::MemoryCache;
-use crypto_dash_stream_hub::StreamHub;
 use crypto_dash_exchanges_common::ExchangeAdapter;
+use crypto_dash_stream_hub::StreamHub;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -21,12 +21,14 @@ pub async fn create_test_app() -> Result<(Router, Box<dyn FnOnce() + Send>)> {
 
     // Create app state with both adapters
     let mut app_state = AppState::new(hub_handle.clone(), cache_handle.clone());
-    
+
     // Add Binance adapter
     let binance_adapter = Arc::new(BinanceAdapter::new());
-    binance_adapter.start(hub_handle.clone(), cache_handle.clone()).await?;
+    binance_adapter
+        .start(hub_handle.clone(), cache_handle.clone())
+        .await?;
     app_state.add_exchange(binance_adapter);
-    
+
     // Add Bybit adapter
     let bybit_adapter = Arc::new(BybitAdapter::new());
     bybit_adapter.start(hub_handle, cache_handle).await?;
@@ -34,11 +36,23 @@ pub async fn create_test_app() -> Result<(Router, Box<dyn FnOnce() + Send>)> {
 
     // Create router with all routes
     let app = Router::new()
-        .route("/health", axum::routing::get(crypto_dash_api::routes::health))
+        .route(
+            "/health",
+            axum::routing::get(crypto_dash_api::routes::health),
+        )
         .route("/ready", axum::routing::get(crypto_dash_api::routes::ready))
-        .route("/api/exchanges", axum::routing::get(crypto_dash_api::routes::list_exchanges))
-        .route("/api/symbols", axum::routing::get(crypto_dash_api::routes::list_symbols))
-        .route("/ws", axum::routing::get(crypto_dash_api::ws::websocket_handler))
+        .route(
+            "/api/exchanges",
+            axum::routing::get(crypto_dash_api::routes::list_exchanges),
+        )
+        .route(
+            "/api/symbols",
+            axum::routing::get(crypto_dash_api::routes::list_symbols),
+        )
+        .route(
+            "/ws",
+            axum::routing::get(crypto_dash_api::ws::websocket_handler),
+        )
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(app_state);
 

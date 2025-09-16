@@ -33,7 +33,7 @@ impl Symbol {
             quote: quote.into(),
         }
     }
-    
+
     pub fn canonical(&self) -> String {
         format!("{}-{}", self.base, self.quote)
     }
@@ -184,10 +184,7 @@ mod tests {
 
     #[test]
     fn test_price_level_creation() {
-        let level = PriceLevel::new(
-            Decimal::new(50000, 0),
-            Decimal::new(1, 1),
-        );
+        let level = PriceLevel::new(Decimal::new(50000, 0), Decimal::new(1, 1));
         assert_eq!(level.price, Decimal::new(50000, 0));
         assert_eq!(level.quantity, Decimal::new(1, 1));
     }
