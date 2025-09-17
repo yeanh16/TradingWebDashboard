@@ -376,6 +376,13 @@ impl BinanceAdapter {
     async fn start_mock_data(&self, hub: HubHandle) -> Result<()> {
         info!("Starting Binance mock data generator");
 
+        {
+            let generator_guard = self.mock_generator.lock().await;
+            if generator_guard.is_some() {
+                return Ok(());
+            }
+        }
+
         let mock_generator = MockDataGenerator::new(self.id(), hub);
 
         mock_generator.start().await;
@@ -383,6 +390,56 @@ impl BinanceAdapter {
         *self.mock_generator.lock().await = Some(mock_generator);
 
         Ok(())
+    }
+
+    async fn ensure_connection(&self) -> Result<Option<Arc<WsClient>>> {
+        {
+            let use_mock = *self.use_mock_data.lock().await;
+            if use_mock {
+                return Ok(None);
+            }
+        }
+
+        if let Some(client) = {
+            let ws_guard = self.ws_client.lock().await;
+            ws_guard.clone()
+        } {
+            if client.is_connected() {
+                return Ok(Some(client));
+            }
+        }
+
+        match self.try_real_connection().await {
+            Ok(()) => {
+                *self.use_mock_data.lock().await = false;
+            }
+            Err(err) => {
+                warn!("Failed to reconnect to Binance WebSocket: {}", err);
+
+                let hub_handle = {
+                    let hub_guard = self.hub.lock().await;
+                    hub_guard.clone()
+                };
+
+                if let Some(hub_handle) = hub_handle {
+                    self.start_mock_data(hub_handle).await?;
+                    *self.use_mock_data.lock().await = true;
+                    return Ok(None);
+                } else {
+                    return Err(err);
+                }
+            }
+        }
+
+        let client = {
+            let ws_guard = self.ws_client.lock().await;
+            ws_guard.clone()
+        };
+
+        match client {
+            Some(client) => Ok(Some(client)),
+            None => Err(anyhow!("WebSocket client not connected after reconnect")),
+        }
     }
 }
 
@@ -437,31 +494,20 @@ impl ExchangeAdapter for BinanceAdapter {
             return Ok(());
         }
 
-        let use_mock = *self.use_mock_data.lock().await;
+        let maybe_client = self.ensure_connection().await?;
 
-        if use_mock {
+        if maybe_client.is_none() {
             info!("Using mock data for Binance - subscription request acknowledged");
-
-            // Mock data generator is already running, just acknowledge the subscription
 
             return Ok(());
         }
 
         let subscription = self.format_subscription(channels)?;
+        let ws_client = maybe_client.unwrap();
 
-        let ws_client = {
-            let ws_guard = self.ws_client.lock().await;
+        ws_client.send_text(&subscription).await?;
 
-            ws_guard.clone()
-        };
-
-        if let Some(ws_client) = ws_client {
-            ws_client.send_text(&subscription).await?;
-
-            debug!("Sent Binance subscription: {}", subscription);
-        } else {
-            return Err(anyhow!("WebSocket client not connected"));
-        }
+        debug!("Sent Binance subscription: {}", subscription);
 
         Ok(())
     }
