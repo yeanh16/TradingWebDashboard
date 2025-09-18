@@ -21,6 +21,8 @@ const MOCK_EXCHANGES: Exchange[] = [
 ]
 
 const MARKET_TYPES: MarketType[] = ['spot', 'perpetual']
+const QUOTE_SYMBOLS = ['USDT', 'USDC', 'BTC', 'ETH'] as const
+type QuoteSymbol = (typeof QUOTE_SYMBOLS)[number]
 
 const DEFAULT_TICKERS: SelectedTicker[] = [
   { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', market_type: 'spot', display_name: 'Bitcoin / USDT' },
@@ -31,6 +33,7 @@ export default function HomePage() {
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance', 'bybit'])
   const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>(DEFAULT_TICKERS)
   const [selectedMarketType, setSelectedMarketType] = useState<MarketType>('spot')
+  const [selectedQuoteSymbol, setSelectedQuoteSymbol] = useState<QuoteSymbol>('USDT')
   const [symbolMetadata, setSymbolMetadata] = useState<Record<string, Record<string, SymbolInfo>>>(() => ({}))
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
@@ -140,7 +143,11 @@ export default function HomePage() {
 
     // Create channels from selected tickers that match selected exchanges
     const channels: Channel[] = selectedTickers
-      .filter(ticker => selectedExchanges.includes(ticker.exchange) && ticker.market_type === selectedMarketType)
+      .filter(ticker =>
+        selectedExchanges.includes(ticker.exchange) &&
+        ticker.market_type === selectedMarketType &&
+        ticker.quote === selectedQuoteSymbol
+      )
       .map(ticker => ({
         channel_type: 'ticker' as const,
         exchange: ticker.exchange,
@@ -160,7 +167,7 @@ export default function HomePage() {
         unsubscribe(channels)
       }
     }
-  }, [selectedExchanges, selectedTickers, selectedMarketType, wsState.connected, subscribe, unsubscribe])
+  }, [selectedExchanges, selectedTickers, selectedMarketType, selectedQuoteSymbol, wsState.connected, subscribe, unsubscribe])
 
   if (loading) {
     return (
@@ -182,7 +189,7 @@ export default function HomePage() {
         <LatencyBadge wsState={wsState} onClearError={clearError} />
       </div>
 
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-muted-foreground">Market Type</span>
           <div className="inline-flex rounded-md border border-border bg-background p-1">
@@ -193,6 +200,20 @@ export default function HomePage() {
                 className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${selectedMarketType === type ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 {type === 'spot' ? 'Spot' : 'Perpetual'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-muted-foreground">Quote</span>
+          <div className="inline-flex flex-wrap gap-2 rounded-md border border-border bg-background p-1">
+            {QUOTE_SYMBOLS.map((quote) => (
+              <button
+                key={quote}
+                onClick={() => setSelectedQuoteSymbol(quote)}
+                className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${selectedQuoteSymbol === quote ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {quote}
               </button>
             ))}
           </div>
@@ -211,6 +232,7 @@ export default function HomePage() {
             selectedTickers={selectedTickers}
             onTickersChange={setSelectedTickers}
             activeMarketType={selectedMarketType}
+            activeQuoteSymbol={selectedQuoteSymbol}
           />
         </div>
         <div className="lg:col-span-9">
@@ -220,6 +242,7 @@ export default function HomePage() {
             tickers={tickers}
             wsConnected={wsState.connected}
             activeMarketType={selectedMarketType}
+            activeQuoteSymbol={selectedQuoteSymbol}
           />
         </div>
       </div>

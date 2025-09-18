@@ -10,6 +10,7 @@ describe('TickerTable', () => {
       base: 'BTC',
       quote: 'USDT',
       exchange: 'binance',
+      market_type: 'spot',
       display_name: 'Bitcoin / USDT',
     },
     {
@@ -17,6 +18,7 @@ describe('TickerTable', () => {
       base: 'ETH',
       quote: 'USDT',
       exchange: 'binance',
+      market_type: 'spot',
       display_name: 'Ethereum / USDT',
     },
   ];
@@ -49,6 +51,8 @@ describe('TickerTable', () => {
     selectedTickers: mockSelectedTickers,
     tickers: {},
     wsConnected: false,
+    activeMarketType: 'spot',
+    activeQuoteSymbol: 'USDT',
   };
 
   beforeEach(() => {
@@ -328,3 +332,7 @@ describe('TickerTable', () => {
     });
   });
 });
+
+
+
+

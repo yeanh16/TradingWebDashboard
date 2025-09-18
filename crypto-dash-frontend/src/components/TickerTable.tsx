@@ -23,6 +23,7 @@ interface TickerTableProps {
   tickers: Record<string, Ticker>
   wsConnected: boolean
   activeMarketType: MarketType
+  activeQuoteSymbol: string
 }
 
 // Mock data for demonstration when no live data is available - updated with current realistic prices
@@ -51,7 +52,7 @@ const MOCK_TICKERS: TickerData[] = [
   },
 ]
 
-export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsConnected, activeMarketType }: TickerTableProps) {
+export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsConnected, activeMarketType, activeQuoteSymbol }: TickerTableProps) {
   const [loading, setLoading] = useState(true)
   const [priceChanges, setPriceChanges] = useState<Record<string, 'up' | 'down' | null>>({})
 
@@ -62,6 +63,10 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
     // Map through selected tickers and try to find live data for them
     selectedTickers.forEach(selectedTicker => {
       if (selectedTicker.market_type !== activeMarketType) {
+        return
+      }
+
+      if (selectedTicker.quote !== activeQuoteSymbol) {
         return
       }
 
@@ -122,7 +127,7 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
     })
     
     return result
-  }, [tickers, selectedExchanges, selectedTickers, wsConnected, activeMarketType])
+  }, [tickers, selectedExchanges, selectedTickers, wsConnected, activeMarketType, activeQuoteSymbol])
 
   // Track price changes for visual feedback
   useEffect(() => {
