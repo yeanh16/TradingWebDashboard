@@ -13,6 +13,20 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
+pub const ALLOWED_SPOT_QUOTES: &[&str] = &["USDT", "USDC", "BUSD", "TUSD", "BTC", "ETH"];
+pub const ALLOWED_PERP_QUOTES: &[&str] = &["USDT", "USDC", "BUSD", "TUSD"];
+
+pub fn is_quote_allowed(market_type: MarketType, quote: &str) -> bool {
+    let allowed = match market_type {
+        MarketType::Spot => ALLOWED_SPOT_QUOTES,
+        MarketType::Perpetual => ALLOWED_PERP_QUOTES,
+    };
+
+    allowed
+        .iter()
+        .any(|allowed_quote| allowed_quote.eq_ignore_ascii_case(quote))
+}
+
 /// Raw symbol data from Binance API
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -92,6 +106,10 @@ impl ExchangeCatalog {
         }
     }
 
+    fn filter_symbols(symbols: &mut Vec<SymbolMeta>) {
+        symbols.retain(|meta| is_quote_allowed(meta.market_type, &meta.quote));
+    }
+
     /// Load symbol metadata for all exchanges
     pub async fn load_all(
         &self,
@@ -121,11 +139,13 @@ impl ExchangeCatalog {
     pub async fn load_exchange_symbols(&self, exchange_name: &str) -> Result<()> {
         info!("Loading symbols for exchange: {}", exchange_name);
 
-        let symbols = match exchange_name {
+        let mut symbols = match exchange_name {
             "binance" => self.fetch_binance_symbols().await?,
             "bybit" => self.fetch_bybit_symbols().await?,
             _ => return Err(anyhow!("Unsupported exchange: {}", exchange_name)),
         };
+
+        Self::filter_symbols(&mut symbols);
 
         // Store in memory cache
         {
@@ -148,12 +168,17 @@ impl ExchangeCatalog {
         let cache = self.symbol_cache.read().await;
 
         match exchange {
-            Some(exchange_name) => cache.get(exchange_name).cloned().unwrap_or_default(),
+            Some(exchange_name) => {
+                let mut symbols = cache.get(exchange_name).cloned().unwrap_or_default();
+                Self::filter_symbols(&mut symbols);
+                symbols
+            }
             None => {
                 let mut all_symbols = Vec::new();
                 for symbols in cache.values() {
                     all_symbols.extend(symbols.clone());
                 }
+                Self::filter_symbols(&mut all_symbols);
                 all_symbols
             }
         }
@@ -230,6 +255,8 @@ impl ExchangeCatalog {
             symbols.push(perp_meta);
         }
 
+        Self::filter_symbols(&mut symbols);
+
         Ok(symbols)
     }
 
@@ -300,12 +327,16 @@ impl ExchangeCatalog {
             symbols.push(perp_meta);
         }
 
+        Self::filter_symbols(&mut symbols);
+
         Ok(symbols)
     }
 
     async fn load_from_cache(&self, exchange_name: &str) -> Result<()> {
         let cache_key = format!("exchange_symbols_{}", exchange_name);
-        if let Ok(Some(symbols)) = self.cache.get::<Vec<SymbolMeta>>(&cache_key).await {
+        if let Ok(Some(mut symbols)) = self.cache.get::<Vec<SymbolMeta>>(&cache_key).await {
+            Self::filter_symbols(&mut symbols);
+
             let mut cache = self.symbol_cache.write().await;
             cache.insert(exchange_name.to_string(), symbols);
             info!("Loaded symbols for {} from cache", exchange_name);
@@ -358,6 +389,8 @@ impl ExchangeCatalog {
             })
             .collect();
         fallback_symbols.append(&mut perp_entries);
+
+        Self::filter_symbols(&mut fallback_symbols);
 
         let mut cache = self.symbol_cache.write().await;
         cache.insert(exchange_name.to_string(), fallback_symbols);

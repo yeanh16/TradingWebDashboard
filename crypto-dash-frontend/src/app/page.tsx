@@ -21,8 +21,13 @@ const MOCK_EXCHANGES: Exchange[] = [
 ]
 
 const MARKET_TYPES: MarketType[] = ['spot', 'perpetual']
-const QUOTE_SYMBOLS = ['USDT', 'USDC', 'BTC', 'ETH'] as const
-type QuoteSymbol = (typeof QUOTE_SYMBOLS)[number]
+const SPOT_QUOTES = ['USDT', 'USDC', 'BUSD', 'TUSD', 'BTC', 'ETH'] as const
+const PERP_QUOTES = ['USDT', 'USDC', 'BUSD', 'TUSD'] as const
+type QuoteSymbol = (typeof SPOT_QUOTES)[number] | (typeof PERP_QUOTES)[number]
+const QUOTE_OPTIONS: Record<MarketType, readonly QuoteSymbol[]> = {
+  spot: SPOT_QUOTES,
+  perpetual: PERP_QUOTES,
+}
 
 const DEFAULT_TICKERS: SelectedTicker[] = [
   { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', market_type: 'spot', display_name: 'Bitcoin / USDT' },
@@ -39,6 +44,14 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   
   const { state: wsState, tickers, subscribe, unsubscribe, clearError } = useWebSocket()
+
+  const handleMarketTypeChange = (type: MarketType) => {
+    setSelectedMarketType(type);
+    setSelectedQuoteSymbol((current) => {
+      const allowed = QUOTE_OPTIONS[type];
+      return allowed.includes(current) ? current : allowed[0];
+    });
+  };
 
   useEffect(() => {
     if (selectedExchanges.length === 0) {
@@ -196,7 +209,7 @@ export default function HomePage() {
             {MARKET_TYPES.map((type) => (
               <button
                 key={type}
-                onClick={() => setSelectedMarketType(type)}
+                onClick={() => handleMarketTypeChange(type)}
                 className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${selectedMarketType === type ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 {type === 'spot' ? 'Spot' : 'Perpetual'}
@@ -207,7 +220,7 @@ export default function HomePage() {
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-muted-foreground">Quote</span>
           <div className="inline-flex flex-wrap gap-2 rounded-md border border-border bg-background p-1">
-            {QUOTE_SYMBOLS.map((quote) => (
+            {QUOTE_OPTIONS[selectedMarketType].map((quote) => (
               <button
                 key={quote}
                 onClick={() => setSelectedQuoteSymbol(quote)}

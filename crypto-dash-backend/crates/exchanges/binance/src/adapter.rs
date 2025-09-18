@@ -699,4 +699,3 @@ impl Default for BinanceAdapter {
         Self::new()
     }
 }
-

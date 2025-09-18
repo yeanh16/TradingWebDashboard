@@ -1,3 +1,4 @@
+use crate::catalog::is_quote_allowed;
 use crate::state::AppState;
 use axum::{
     extract::{Query, State},
@@ -54,6 +55,10 @@ pub async fn list_symbols(
         let mut response_map: HashMap<String, Vec<SymbolMetaDto>> = HashMap::new();
 
         for meta in symbol_metas {
+            if !is_quote_allowed(meta.market_type, &meta.quote) {
+                continue;
+            }
+
             let display_name = format!("{} / {}", meta.base, meta.quote);
             let symbol_key = format!("{}-{}", meta.base, meta.quote);
 
@@ -94,7 +99,7 @@ pub async fn list_symbols(
         if let Some(symbols) = popular_symbols.get(&exchange_filter) {
             let mut symbol_dtos: Vec<SymbolMetaDto> = Vec::new();
             for s in symbols {
-                let spot = SymbolMetaDto {
+                let mut spot = SymbolMetaDto {
                     symbol: s.symbol.clone(),
                     base: s.base.clone(),
                     quote: s.quote.clone(),
@@ -105,10 +110,15 @@ pub async fn list_symbols(
                     min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
                     step_size: rust_decimal::Decimal::new(1, 3), // 0.001
                 };
-                let mut perp = spot.clone();
-                perp.market_type = MarketType::Perpetual;
-                symbol_dtos.push(spot);
-                symbol_dtos.push(perp);
+
+                if is_quote_allowed(MarketType::Spot, &spot.quote) {
+                    symbol_dtos.push(spot.clone());
+                }
+
+                spot.market_type = MarketType::Perpetual;
+                if is_quote_allowed(MarketType::Perpetual, &spot.quote) {
+                    symbol_dtos.push(spot);
+                }
             }
 
             response.push(SymbolResponse {
@@ -122,7 +132,7 @@ pub async fn list_symbols(
             if let Some(symbols) = popular_symbols.get(exchange.id.as_str()) {
                 let mut symbol_dtos: Vec<SymbolMetaDto> = Vec::new();
                 for s in symbols {
-                    let spot = SymbolMetaDto {
+                    let mut spot = SymbolMetaDto {
                         symbol: s.symbol.clone(),
                         base: s.base.clone(),
                         quote: s.quote.clone(),
@@ -133,10 +143,15 @@ pub async fn list_symbols(
                         min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
                         step_size: rust_decimal::Decimal::new(1, 3), // 0.001
                     };
-                    let mut perp = spot.clone();
-                    perp.market_type = MarketType::Perpetual;
-                    symbol_dtos.push(spot);
-                    symbol_dtos.push(perp);
+
+                    if is_quote_allowed(MarketType::Spot, &spot.quote) {
+                        symbol_dtos.push(spot.clone());
+                    }
+
+                    spot.market_type = MarketType::Perpetual;
+                    if is_quote_allowed(MarketType::Perpetual, &spot.quote) {
+                        symbol_dtos.push(spot);
+                    }
                 }
 
                 response.push(SymbolResponse {

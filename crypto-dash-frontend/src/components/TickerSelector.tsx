@@ -10,6 +10,11 @@ const MARKET_TYPE_LABEL: Record<MarketType, string> = {
   perpetual: 'Perpetual',
 }
 
+const ALLOWED_QUOTES: Record<MarketType, readonly string[]> = {
+  spot: ['USDT', 'USDC', 'BUSD', 'TUSD', 'BTC', 'ETH'],
+  perpetual: ['USDT', 'USDC', 'BUSD', 'TUSD'],
+}
+
 const formatExchange = (value: string) => (value ? value.charAt(0).toUpperCase() + value.slice(1) : value)
 
 interface TickerSelectorProps {
@@ -100,6 +105,12 @@ export function TickerSelector({
           return matchesBase;
         })
         .forEach((symbol) => {
+          const allowedQuotes = ALLOWED_QUOTES[symbol.market_type];
+          const quote = symbol.quote.toLowerCase();
+          if (!allowedQuotes.some((allowed) => allowed.toLowerCase() === quote)) {
+            return;
+          }
+
           const key = symbol.base.toUpperCase()
           if (!groups.has(key)) {
             const displayName = symbol.display_name.split(' / ')[0] ?? symbol.base
