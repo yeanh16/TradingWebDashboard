@@ -7,7 +7,7 @@ import { TickerSelector } from '@/components/TickerSelector'
 import { LatencyBadge } from '@/components/LatencyBadge'
 import { useWebSocket } from '@/lib/useWebSocket'
 import { apiClient } from '@/lib/api'
-import { Channel, SelectedTicker, SymbolResponse, SymbolInfo, MarketType, SymbolsPayload, AllowedQuotes } from '@/lib/types'
+import { Channel, SelectedTicker, SymbolInfo, MarketType, SymbolsPayload, AllowedQuotes } from '@/lib/types'
 
 interface Exchange {
   id: string
@@ -22,18 +22,15 @@ const MOCK_EXCHANGES: Exchange[] = [
 
 const MARKET_TYPES: MarketType[] = ['spot', 'perpetual']
 type QuoteSymbol = string
-
-const DEFAULT_TICKERS: SelectedTicker[] = [
-  { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', market_type: 'spot', display_name: 'Bitcoin / USDT' },
-  { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', market_type: 'spot', display_name: 'Ethereum / USDT' },
-]
+const DEFAULT_BASE_ASSET = 'BTC'
 
 export default function HomePage() {
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance', 'bybit'])
-  const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>(DEFAULT_TICKERS)
+  const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>([])
   const [selectedMarketType, setSelectedMarketType] = useState<MarketType>('spot')
   const [selectedQuoteSymbol, setSelectedQuoteSymbol] = useState<QuoteSymbol>('USDT')
   const [allowedQuotes, setAllowedQuotes] = useState<AllowedQuotes>({ spot: [], perpetual: [] })
+  const [hasInitializedDefaults, setHasInitializedDefaults] = useState(false)
   const [symbolMetadata, setSymbolMetadata] = useState<Record<string, Record<string, SymbolInfo>>>(() => ({}))
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
@@ -82,20 +79,78 @@ export default function HomePage() {
 
           const symbolsMap: Record<string, SymbolInfo> = {}
           exchangeData.symbols.forEach((symbol) => {
-            symbolsMap[symbol.symbol] = symbol
+            const key = `${symbol.symbol}::${symbol.market_type}`
+            symbolsMap[key] = symbol
           })
 
           metadataMap[exchangeData.exchange] = symbolsMap
         })
 
         setSymbolMetadata(metadataMap)
+
+        if (!hasInitializedDefaults) {
+          const defaultEntries: SelectedTicker[] = []
+          const allowedByMarket = response.allowed_quotes
+
+          response.exchanges.forEach((exchangeData) => {
+            if (!selectedExchanges.includes(exchangeData.exchange)) {
+              return
+            }
+
+            exchangeData.symbols.forEach((symbol) => {
+              if (symbol.base.toUpperCase() !== DEFAULT_BASE_ASSET) {
+                return
+              }
+
+              const allowedForMarket = (allowedByMarket[symbol.market_type] ?? []).map((value) => value.toUpperCase())
+              if (!allowedForMarket.includes(symbol.quote.toUpperCase())) {
+                return
+              }
+
+              defaultEntries.push({
+                symbol: symbol.symbol,
+                base: symbol.base,
+                quote: symbol.quote,
+                exchange: exchangeData.exchange,
+                market_type: symbol.market_type,
+                display_name: symbol.display_name,
+                price_precision: symbol.price_precision,
+                tick_size: symbol.tick_size,
+                min_qty: symbol.min_qty,
+                step_size: symbol.step_size,
+              })
+            })
+          })
+
+          if (defaultEntries.length > 0) {
+            defaultEntries.sort((a, b) => {
+              if (a.exchange !== b.exchange) {
+                return a.exchange.localeCompare(b.exchange)
+              }
+              if (a.market_type !== b.market_type) {
+                return a.market_type.localeCompare(b.market_type)
+              }
+              return a.quote.localeCompare(b.quote)
+            })
+
+            setSelectedTickers((prev) => {
+              if (prev.length > 0) {
+                return prev
+              }
+
+              return defaultEntries
+            })
+
+            setHasInitializedDefaults(true)
+          }
+        }
       } catch (error) {
         console.error('Failed to load symbol metadata:', error)
       }
     }
 
     loadMetadata()
-  }, [selectedExchanges])
+  }, [selectedExchanges, hasInitializedDefaults])
 
   useEffect(() => {
     // Load exchanges from API
@@ -274,3 +329,5 @@ export default function HomePage() {
     </div>
   )
 }
+
+
