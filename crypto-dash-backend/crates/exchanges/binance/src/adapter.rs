@@ -8,8 +8,8 @@ use crypto_dash_cache::CacheHandle;
 
 use crypto_dash_core::{
     model::{
-        Channel, ChannelType, ExchangeId, OrderBookSnapshot, PriceLevel, StreamMessage, Symbol,
-        Ticker,
+        Channel, ChannelType, ExchangeId, MarketType, OrderBookSnapshot, PriceLevel, StreamMessage,
+        Symbol, Ticker,
     },
     time::{from_millis, now, to_millis},
 };
@@ -20,6 +20,7 @@ use crypto_dash_stream_hub::{HubHandle, Topic};
 
 use rust_decimal::Decimal;
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use std::sync::Arc;
@@ -30,49 +31,105 @@ use tokio_tungstenite::tungstenite::Message;
 
 use tracing::{debug, error, info, warn};
 
-const BINANCE_WS_URL: &str = "wss://stream.binance.com:9443/ws";
+const BINANCE_SPOT_WS_URL: &str = "wss://stream.binance.com:9443/ws";
+const BINANCE_PERP_WS_URL: &str = "wss://fstream.binance.com/ws";
+const SUPPORTED_MARKETS: [MarketType; 2] = [MarketType::Spot, MarketType::Perpetual];
 
 #[derive(Clone)]
-
 pub struct BinanceAdapter {
-    ws_client: Arc<Mutex<Option<Arc<WsClient>>>>,
-
     hub: Arc<Mutex<Option<HubHandle>>>,
-
     cache: Arc<Mutex<Option<CacheHandle>>>,
-
-    mock_generator: Arc<Mutex<Option<MockDataGenerator>>>,
-
-    use_mock_data: Arc<Mutex<bool>>,
+    ws_clients: Arc<Mutex<HashMap<MarketType, Option<Arc<WsClient>>>>>,
+    mock_generators: Arc<Mutex<HashMap<MarketType, Option<MockDataGenerator>>>>,
+    use_mock_data: Arc<Mutex<HashMap<MarketType, bool>>>,
 }
 
 impl BinanceAdapter {
     pub fn new() -> Self {
+        let mut ws_clients = HashMap::new();
+        let mut mock_generators = HashMap::new();
+        let mut use_mock_data = HashMap::new();
+
+        for market in SUPPORTED_MARKETS {
+            ws_clients.insert(market, None);
+            mock_generators.insert(market, None);
+            use_mock_data.insert(market, false);
+        }
+
         Self {
-            ws_client: Arc::new(Mutex::new(None)),
-
             hub: Arc::new(Mutex::new(None)),
-
             cache: Arc::new(Mutex::new(None)),
-
-            mock_generator: Arc::new(Mutex::new(None)),
-
-            use_mock_data: Arc::new(Mutex::new(false)),
+            ws_clients: Arc::new(Mutex::new(ws_clients)),
+            mock_generators: Arc::new(Mutex::new(mock_generators)),
+            use_mock_data: Arc::new(Mutex::new(use_mock_data)),
         }
     }
 
-    async fn handle_message(&self, message: BinanceStreamMessage) -> Result<()> {
+    fn market_label(market_type: MarketType) -> &'static str {
+        match market_type {
+            MarketType::Spot => "spot",
+            MarketType::Perpetual => "perpetual",
+        }
+    }
+
+    async fn mock_enabled(&self, market_type: MarketType) -> bool {
+        let guard = self.use_mock_data.lock().await;
+        guard.get(&market_type).copied().unwrap_or(false)
+    }
+
+    async fn set_mock_enabled(&self, market_type: MarketType, enabled: bool) {
+        let mut guard = self.use_mock_data.lock().await;
+        if let Some(entry) = guard.get_mut(&market_type) {
+            *entry = enabled;
+        }
+    }
+
+    async fn get_ws_client(&self, market_type: MarketType) -> Option<Arc<WsClient>> {
+        let guard = self.ws_clients.lock().await;
+        guard
+            .get(&market_type)
+            .and_then(|client| client.as_ref().cloned())
+    }
+
+    async fn set_ws_client(&self, market_type: MarketType, client: Option<Arc<WsClient>>) {
+        let mut guard = self.ws_clients.lock().await;
+        if let Some(entry) = guard.get_mut(&market_type) {
+            *entry = client;
+        }
+    }
+
+    async fn get_mock_generator(&self, market_type: MarketType) -> Option<MockDataGenerator> {
+        let guard = self.mock_generators.lock().await;
+        guard.get(&market_type).cloned().flatten()
+    }
+
+    async fn set_mock_generator(
+        &self,
+        market_type: MarketType,
+        generator: Option<MockDataGenerator>,
+    ) {
+        let mut guard = self.mock_generators.lock().await;
+        if let Some(entry) = guard.get_mut(&market_type) {
+            *entry = generator;
+        }
+    }
+
+    async fn handle_message(
+        &self,
+        market_type: MarketType,
+        message: BinanceStreamMessage,
+    ) -> Result<()> {
         match message {
             BinanceStreamMessage::StreamTicker { stream: _, data } => {
-                self.handle_ticker(data).await?;
+                self.handle_ticker(market_type, data).await?;
             }
 
             BinanceStreamMessage::DirectTicker(data) => {
-                self.handle_ticker(data).await?;
+                self.handle_ticker(market_type, data).await?;
             }
 
             BinanceStreamMessage::OrderBook { stream, data } => {
-                self.handle_orderbook(&stream, data).await?;
+                self.handle_orderbook(market_type, &stream, data).await?;
             }
 
             BinanceStreamMessage::Error { error, .. } => {
@@ -95,19 +152,25 @@ impl BinanceAdapter {
         };
 
         if should_disconnect {
-            let mut ws_guard = self.ws_client.lock().await;
+            let market_type = topic.market_type;
+            let mut ws_guard = self.ws_clients.lock().await;
 
-            if let Some(client) = ws_guard.take() {
-                info!("Binance: No active subscribers, closing WebSocket connection");
+            if let Some(entry) = ws_guard.get_mut(&market_type) {
+                if let Some(client) = entry.take() {
+                    info!(
+                        market = Self::market_label(market_type),
+                        "Binance market disconnected due to no subscribers"
+                    );
 
-                client.close().await?;
+                    client.close().await?;
+                }
             }
         }
 
         Ok(())
     }
 
-    async fn handle_ticker(&self, ticker: BinanceTicker) -> Result<()> {
+    async fn handle_ticker(&self, market_type: MarketType, ticker: BinanceTicker) -> Result<()> {
         let symbol = self.parse_symbol(&ticker.s)?;
 
         let event_millis = ticker
@@ -126,6 +189,7 @@ impl BinanceAdapter {
             timestamp,
 
             exchange: self.id(),
+            market_type,
 
             symbol: symbol.clone(),
 
@@ -144,7 +208,7 @@ impl BinanceAdapter {
             cache.set_ticker(normalized_ticker.clone()).await;
         }
 
-        let topic = Topic::ticker(self.id(), symbol);
+        let topic = Topic::ticker(self.id(), market_type, symbol);
 
         if let Some(hub) = &*self.hub.lock().await {
             hub.publish(&topic, StreamMessage::Ticker(normalized_ticker))
@@ -156,7 +220,12 @@ impl BinanceAdapter {
         Ok(())
     }
 
-    async fn handle_orderbook(&self, stream: &str, orderbook: BinanceOrderBook) -> Result<()> {
+    async fn handle_orderbook(
+        &self,
+        market_type: MarketType,
+        stream: &str,
+        orderbook: BinanceOrderBook,
+    ) -> Result<()> {
         // Extract symbol from stream name (e.g., "btcusdt@depth")
 
         let symbol_str = stream.split('@').next().unwrap_or(stream).to_uppercase();
@@ -192,6 +261,8 @@ impl BinanceAdapter {
 
             exchange: self.id(),
 
+            market_type,
+
             symbol: symbol.clone(),
 
             bids,
@@ -205,7 +276,7 @@ impl BinanceAdapter {
             cache.set_orderbook(normalized_orderbook.clone()).await;
         }
 
-        let topic = Topic::orderbook(self.id(), symbol);
+        let topic = Topic::orderbook(self.id(), market_type, symbol);
 
         if let Some(hub) = &*self.hub.lock().await {
             hub.publish(
@@ -298,7 +369,11 @@ impl BinanceAdapter {
         Ok(unsubscription.to_string())
     }
 
-    async fn listen_for_messages(&self, ws_client: Arc<WsClient>) -> Result<()> {
+    async fn listen_for_messages(
+        &self,
+        market_type: MarketType,
+        ws_client: Arc<WsClient>,
+    ) -> Result<()> {
         loop {
             let message = match ws_client.next_message().await? {
                 Some(Message::Text(text)) => text,
@@ -320,7 +395,7 @@ impl BinanceAdapter {
 
             match serde_json::from_str::<BinanceStreamMessage>(&message) {
                 Ok(stream_message) => {
-                    if let Err(e) = self.handle_message(stream_message).await {
+                    if let Err(e) = self.handle_message(market_type, stream_message).await {
                         error!("Failed to handle Binance message: {}", e);
                     }
                 }
@@ -331,90 +406,103 @@ impl BinanceAdapter {
             }
         }
 
-        let mut ws_guard = self.ws_client.lock().await;
+        let mut ws_guard = self.ws_clients.lock().await;
 
-        if let Some(current) = ws_guard.as_ref() {
-            if Arc::ptr_eq(current, &ws_client) {
-                *ws_guard = None;
+        if let Some(entry) = ws_guard.get_mut(&market_type) {
+            if let Some(current) = entry.as_ref() {
+                if Arc::ptr_eq(current, &ws_client) {
+                    *entry = None;
+                }
             }
         }
 
         Ok(())
     }
 
-    async fn try_real_connection(&self) -> Result<()> {
+    async fn try_real_connection(&self, market_type: MarketType) -> Result<Arc<WsClient>> {
+        let ws_url = match market_type {
+            MarketType::Spot => BINANCE_SPOT_WS_URL,
+            MarketType::Perpetual => BINANCE_PERP_WS_URL,
+        };
+
         debug!(
-            "Attempting to connect to Binance WebSocket: {}",
-            BINANCE_WS_URL
+            market = Self::market_label(market_type),
+            "Attempting to connect to Binance WebSocket: {}", ws_url
         );
 
-        let ws_client = Arc::new(WsClient::new(BINANCE_WS_URL));
+        let ws_client = Arc::new(WsClient::new(ws_url));
 
         ws_client.connect().await?;
 
-        debug!("Binance WebSocket handshake successful");
+        debug!(
+            market = Self::market_label(market_type),
+            "Binance WebSocket handshake successful"
+        );
 
-        {
-            let mut guard = self.ws_client.lock().await;
-
-            *guard = Some(ws_client.clone());
-        }
+        self.set_ws_client(market_type, Some(ws_client.clone()))
+            .await;
 
         let adapter = self.clone();
-
         let listener_client = ws_client.clone();
+        let listener_market = market_type;
 
         tokio::spawn(async move {
-            if let Err(e) = adapter.listen_for_messages(listener_client).await {
-                error!("Binance WebSocket listener error: {}", e);
+            if let Err(e) = adapter
+                .listen_for_messages(listener_market, listener_client)
+                .await
+            {
+                error!(
+                    market = BinanceAdapter::market_label(listener_market),
+                    "Binance WebSocket listener error: {}", e
+                );
             }
         });
 
-        Ok(())
+        Ok(ws_client)
     }
 
-    async fn start_mock_data(&self, hub: HubHandle) -> Result<()> {
-        info!("Starting Binance mock data generator");
+    async fn start_mock_data(&self, market_type: MarketType, hub: HubHandle) -> Result<()> {
+        info!(
+            market = Self::market_label(market_type),
+            "Starting Binance mock data generator"
+        );
 
-        {
-            let generator_guard = self.mock_generator.lock().await;
-            if generator_guard.is_some() {
-                return Ok(());
-            }
+        if self.get_mock_generator(market_type).await.is_some() {
+            return Ok(());
         }
 
-        let mock_generator = MockDataGenerator::new(self.id(), hub);
+        let mock_generator = MockDataGenerator::new(self.id(), market_type, hub);
 
         mock_generator.start().await;
 
-        *self.mock_generator.lock().await = Some(mock_generator);
+        self.set_mock_generator(market_type, Some(mock_generator))
+            .await;
 
         Ok(())
     }
 
-    async fn ensure_connection(&self) -> Result<Option<Arc<WsClient>>> {
-        {
-            let use_mock = *self.use_mock_data.lock().await;
-            if use_mock {
-                return Ok(None);
-            }
+    async fn ensure_connection(&self, market_type: MarketType) -> Result<Option<Arc<WsClient>>> {
+        if self.mock_enabled(market_type).await {
+            return Ok(None);
         }
 
-        if let Some(client) = {
-            let ws_guard = self.ws_client.lock().await;
-            ws_guard.clone()
-        } {
+        if let Some(client) = self.get_ws_client(market_type).await {
             if client.is_connected() {
                 return Ok(Some(client));
             }
         }
 
-        match self.try_real_connection().await {
-            Ok(()) => {
-                *self.use_mock_data.lock().await = false;
+        match self.try_real_connection(market_type).await {
+            Ok(client) => {
+                self.set_mock_enabled(market_type, false).await;
+                self.set_ws_client(market_type, Some(client.clone())).await;
+                Ok(Some(client))
             }
             Err(err) => {
-                warn!("Failed to reconnect to Binance WebSocket: {}", err);
+                warn!(
+                    market = Self::market_label(market_type),
+                    "Failed to connect to Binance WebSocket: {}", err
+                );
 
                 let hub_handle = {
                     let hub_guard = self.hub.lock().await;
@@ -422,24 +510,104 @@ impl BinanceAdapter {
                 };
 
                 if let Some(hub_handle) = hub_handle {
-                    self.start_mock_data(hub_handle).await?;
-                    *self.use_mock_data.lock().await = true;
-                    return Ok(None);
+                    self.start_mock_data(market_type, hub_handle).await?;
+                    self.set_mock_enabled(market_type, true).await;
+                    Ok(None)
                 } else {
-                    return Err(err);
+                    Err(err)
                 }
             }
         }
+    }
+    async fn subscribe_internal(&self, channels: &[Channel]) -> Result<()> {
+        info!("Subscribing to {} Binance channels", channels.len());
 
-        let client = {
-            let ws_guard = self.ws_client.lock().await;
-            ws_guard.clone()
-        };
-
-        match client {
-            Some(client) => Ok(Some(client)),
-            None => Err(anyhow!("WebSocket client not connected after reconnect")),
+        if channels.is_empty() {
+            debug!("No Binance channels to subscribe");
+            return Ok(());
         }
+
+        let mut by_market: HashMap<MarketType, Vec<Channel>> = HashMap::new();
+        for channel in channels {
+            by_market
+                .entry(channel.market_type)
+                .or_insert_with(Vec::new)
+                .push(channel.clone());
+        }
+
+        for (market_type, market_channels) in by_market {
+            if market_channels.is_empty() {
+                continue;
+            }
+
+            let maybe_client = self.ensure_connection(market_type).await?;
+
+            if maybe_client.is_none() {
+                info!(
+                    market = Self::market_label(market_type),
+                    "Using mock data for Binance market - subscription acknowledged"
+                );
+                continue;
+            }
+
+            let subscription = self.format_subscription(&market_channels)?;
+            if let Some(ws_client) = maybe_client {
+                ws_client.send_text(&subscription).await?;
+                debug!(
+                    market = Self::market_label(market_type),
+                    "Sent Binance subscription: {}", subscription
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn unsubscribe_internal(&self, channels: &[Channel]) -> Result<()> {
+        info!("Unsubscribing from {} Binance channels", channels.len());
+
+        if channels.is_empty() {
+            debug!("No Binance channels to unsubscribe");
+            return Ok(());
+        }
+
+        let mut by_market: HashMap<MarketType, Vec<Channel>> = HashMap::new();
+        for channel in channels {
+            by_market
+                .entry(channel.market_type)
+                .or_insert_with(Vec::new)
+                .push(channel.clone());
+        }
+
+        for (market_type, market_channels) in by_market {
+            if market_channels.is_empty() {
+                continue;
+            }
+
+            if self.mock_enabled(market_type).await {
+                info!(
+                    market = Self::market_label(market_type),
+                    "Using mock data for Binance market - unsubscribe acknowledged"
+                );
+                continue;
+            }
+
+            let unsubscription = self.format_unsubscription(&market_channels)?;
+            if let Some(ws_client) = self.get_ws_client(market_type).await {
+                ws_client.send_text(&unsubscription).await?;
+                debug!(
+                    market = Self::market_label(market_type),
+                    "Sent Binance unsubscription: {}", unsubscription
+                );
+            } else {
+                return Err(anyhow!(
+                    "WebSocket client not connected for Binance {} market",
+                    Self::market_label(market_type)
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -453,126 +621,55 @@ impl ExchangeAdapter for BinanceAdapter {
     async fn start(&self, hub: HubHandle, cache: CacheHandle) -> Result<()> {
         info!("Starting Binance adapter");
 
-        // Store handles
-
         *self.hub.lock().await = Some(hub.clone());
-
         *self.cache.lock().await = Some(cache.clone());
 
-        // Try to connect to real WebSocket first
-
-        match self.try_real_connection().await {
-            Ok(()) => {
-                info!("Binance adapter connected to real WebSocket");
-
-                *self.use_mock_data.lock().await = false;
-            }
-
-            Err(e) => {
-                warn!(
-                    "Failed to connect to real Binance WebSocket: {}. Falling back to mock data.",
-                    e
-                );
-
-                self.start_mock_data(hub).await?;
-
-                *self.use_mock_data.lock().await = true;
-            }
-        }
-
-        debug!("Binance adapter started with hub and cache handles");
+        debug!("Binance adapter initialized with hub and cache handles");
 
         Ok(())
     }
 
     async fn subscribe(&self, channels: &[Channel]) -> Result<()> {
-        info!("Subscribing to {} Binance channels", channels.len());
-
-        if channels.is_empty() {
-            debug!("No Binance channels to subscribe");
-
-            return Ok(());
-        }
-
-        let maybe_client = self.ensure_connection().await?;
-
-        if maybe_client.is_none() {
-            info!("Using mock data for Binance - subscription request acknowledged");
-
-            return Ok(());
-        }
-
-        let subscription = self.format_subscription(channels)?;
-        let ws_client = maybe_client.unwrap();
-
-        ws_client.send_text(&subscription).await?;
-
-        debug!("Sent Binance subscription: {}", subscription);
-
-        Ok(())
+        self.subscribe_internal(channels).await
     }
 
     async fn unsubscribe(&self, channels: &[Channel]) -> Result<()> {
-        info!("Unsubscribing from {} Binance channels", channels.len());
-
-        if channels.is_empty() {
-            debug!("No Binance channels to unsubscribe");
-
-            return Ok(());
-        }
-
-        let use_mock = *self.use_mock_data.lock().await;
-
-        if use_mock {
-            info!("Using mock data for Binance - unsubscribe acknowledged");
-
-            return Ok(());
-        }
-
-        let unsubscription = self.format_unsubscription(channels)?;
-
-        let ws_client = {
-            let ws_guard = self.ws_client.lock().await;
-
-            ws_guard.clone()
-        };
-
-        if let Some(ws_client) = ws_client {
-            ws_client.send_text(&unsubscription).await?;
-
-            debug!("Sent Binance unsubscription: {}", unsubscription);
-        } else {
-            return Err(anyhow!("WebSocket client not connected"));
-        }
-
-        Ok(())
+        self.unsubscribe_internal(channels).await
     }
 
     async fn is_connected(&self) -> bool {
-        let use_mock = *self.use_mock_data.lock().await;
-
-        if use_mock {
-            // Mock data is always "connected"
-
-            return true;
+        {
+            let mock_guard = self.use_mock_data.lock().await;
+            if mock_guard.values().any(|enabled| *enabled) {
+                return true;
+            }
         }
 
-        let ws_guard = self.ws_client.lock().await;
-
-        if let Some(ws_client) = ws_guard.as_ref() {
-            ws_client.is_connected()
-        } else {
-            false
+        let ws_guard = self.ws_clients.lock().await;
+        for client in ws_guard.values() {
+            if let Some(client) = client {
+                if client.is_connected() {
+                    return true;
+                }
+            }
         }
+
+        false
     }
 
     async fn stop(&self) -> Result<()> {
         info!("Stopping Binance adapter");
 
-        let mut ws_guard = self.ws_client.lock().await;
+        let mut ws_guard = self.ws_clients.lock().await;
 
-        if let Some(ws_client) = ws_guard.take() {
-            ws_client.close().await?;
+        for (market_type, client_opt) in ws_guard.iter_mut() {
+            if let Some(client) = client_opt.take() {
+                info!(
+                    market = Self::market_label(*market_type),
+                    "Closing Binance WebSocket connection"
+                );
+                client.close().await?;
+            }
         }
 
         Ok(())

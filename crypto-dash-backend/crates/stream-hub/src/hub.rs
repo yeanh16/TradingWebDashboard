@@ -215,7 +215,7 @@ impl Default for StreamHub {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crypto_dash_core::model::{ChannelType, ExchangeId, Symbol, Ticker};
+    use crypto_dash_core::model::{ExchangeId, MarketType, Symbol, Ticker};
     use crypto_dash_core::time::now;
     use rust_decimal::Decimal;
 
@@ -224,13 +224,18 @@ mod tests {
         let hub = StreamHub::new();
         let handle = hub.handle();
 
-        let topic = Topic::ticker(ExchangeId::from("binance"), Symbol::new("BTC", "USDT"));
+        let topic = Topic::ticker(
+            ExchangeId::from("binance"),
+            MarketType::Spot,
+            Symbol::new("BTC", "USDT"),
+        );
 
         let mut subscriber = handle.subscribe(&topic).await;
 
         let ticker = Ticker {
             timestamp: now(),
             exchange: ExchangeId::from("binance"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new("BTC", "USDT"),
             bid: Decimal::new(50000, 0),
             ask: Decimal::new(50001, 0),
@@ -258,7 +263,11 @@ mod tests {
         let hub = StreamHub::new();
         let handle = hub.handle();
 
-        let topic = Topic::ticker(ExchangeId::from("binance"), Symbol::new("BTC", "USDT"));
+        let topic = Topic::ticker(
+            ExchangeId::from("binance"),
+            MarketType::Spot,
+            Symbol::new("BTC", "USDT"),
+        );
 
         let mut sub1 = handle.subscribe(&topic).await;
         let mut sub2 = handle.subscribe(&topic).await;
@@ -268,6 +277,7 @@ mod tests {
         let ticker = Ticker {
             timestamp: now(),
             exchange: ExchangeId::from("binance"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new("BTC", "USDT"),
             bid: Decimal::new(50000, 0),
             ask: Decimal::new(50001, 0),

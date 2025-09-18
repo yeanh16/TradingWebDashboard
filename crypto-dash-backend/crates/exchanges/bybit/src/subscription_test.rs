@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod bybit_subscription_tests {
     use crate::{types::BybitMessage, BybitAdapter};
-    use crypto_dash_core::model::{Channel, ChannelType, ExchangeId, Symbol};
+    use crypto_dash_core::model::{Channel, ChannelType, ExchangeId, MarketType, Symbol};
     use crypto_dash_exchanges_common::ExchangeAdapter;
 
     #[tokio::test]
@@ -13,6 +13,7 @@ mod bybit_subscription_tests {
         let channels = vec![Channel {
             channel_type: ChannelType::Ticker,
             exchange: ExchangeId::from("bybit"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new("BTC", "USDT"),
             depth: None,
         }];
@@ -57,22 +58,26 @@ mod bybit_subscription_tests {
                 ts,
                 message_type,
                 data,
+                ..
             } => {
                 assert_eq!(topic, "tickers.SOLUSDT_SOL/USDT");
                 assert_eq!(ts, 1744168585009);
                 assert_eq!(message_type, "snapshot");
 
-                // Check the ticker data
-                assert_eq!(data.symbol, "SOLUSDT_SOL/USDT");
-                assert_eq!(data.last_price, "21.8182");
-                assert_eq!(data.bid_price, "20.3359");
-                assert_eq!(data.ask_price, "");
-                assert_eq!(data.bid_size, "1.7");
-                assert_eq!(data.ask_size, "");
-                assert_eq!(data.high_price_24h, "24.2356");
-                assert_eq!(data.low_price_24h, "-3");
-                assert_eq!(data.prev_price_24h, "22.1468");
-                assert_eq!(data.volume_24h, "23309.9");
+                let mut tickers = data.into_vec();
+                assert_eq!(tickers.len(), 1);
+                let ticker = tickers.remove(0);
+
+                assert_eq!(ticker.symbol, "SOLUSDT_SOL/USDT");
+                assert_eq!(ticker.last_price, "21.8182");
+                assert_eq!(ticker.bid_price.as_deref(), Some("20.3359"));
+                assert_eq!(ticker.ask_price.as_deref(), Some(""));
+                assert_eq!(ticker.bid_size.as_deref(), Some("1.7"));
+                assert_eq!(ticker.ask_size.as_deref(), Some(""));
+                assert_eq!(ticker.high_price_24h.as_deref(), Some("24.2356"));
+                assert_eq!(ticker.low_price_24h.as_deref(), Some("-3"));
+                assert_eq!(ticker.prev_price_24h.as_deref(), Some("22.1468"));
+                assert_eq!(ticker.volume_24h.as_deref(), Some("23309.9"));
             }
             _ => panic!("Expected Ticker message"),
         }

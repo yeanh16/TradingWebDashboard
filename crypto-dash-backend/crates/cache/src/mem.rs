@@ -1,4 +1,4 @@
-use crypto_dash_core::model::{ExchangeId, OrderBookSnapshot, Symbol, Ticker};
+use crypto_dash_core::model::{ExchangeId, MarketType, OrderBookSnapshot, Symbol, Ticker};
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -8,12 +8,17 @@ use tracing::debug;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TickerKey {
     pub exchange: ExchangeId,
+    pub market_type: MarketType,
     pub symbol: Symbol,
 }
 
 impl TickerKey {
-    pub fn new(exchange: ExchangeId, symbol: Symbol) -> Self {
-        Self { exchange, symbol }
+    pub fn new(exchange: ExchangeId, market_type: MarketType, symbol: Symbol) -> Self {
+        Self {
+            exchange,
+            market_type,
+            symbol,
+        }
     }
 }
 
@@ -21,12 +26,17 @@ impl TickerKey {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OrderBookKey {
     pub exchange: ExchangeId,
+    pub market_type: MarketType,
     pub symbol: Symbol,
 }
 
 impl OrderBookKey {
-    pub fn new(exchange: ExchangeId, symbol: Symbol) -> Self {
-        Self { exchange, symbol }
+    pub fn new(exchange: ExchangeId, market_type: MarketType, symbol: Symbol) -> Self {
+        Self {
+            exchange,
+            market_type,
+            symbol,
+        }
     }
 }
 
@@ -63,7 +73,11 @@ impl CacheHandle {
 
     /// Store a ticker in the cache
     pub async fn set_ticker(&self, ticker: Ticker) {
-        let key = TickerKey::new(ticker.exchange.clone(), ticker.symbol.clone());
+        let key = TickerKey::new(
+            ticker.exchange.clone(),
+            ticker.market_type,
+            ticker.symbol.clone(),
+        );
         debug!(
             "Cached ticker for {}/{}",
             ticker.exchange.as_str(),
@@ -73,8 +87,13 @@ impl CacheHandle {
     }
 
     /// Get a ticker from the cache
-    pub async fn get_ticker(&self, exchange: &ExchangeId, symbol: &Symbol) -> Option<Ticker> {
-        let key = TickerKey::new(exchange.clone(), symbol.clone());
+    pub async fn get_ticker(
+        &self,
+        exchange: &ExchangeId,
+        market_type: MarketType,
+        symbol: &Symbol,
+    ) -> Option<Ticker> {
+        let key = TickerKey::new(exchange.clone(), market_type, symbol.clone());
         self.inner
             .tickers
             .get(&key)
@@ -83,7 +102,11 @@ impl CacheHandle {
 
     /// Store an order book snapshot in the cache
     pub async fn set_orderbook(&self, orderbook: OrderBookSnapshot) {
-        let key = OrderBookKey::new(orderbook.exchange.clone(), orderbook.symbol.clone());
+        let key = OrderBookKey::new(
+            orderbook.exchange.clone(),
+            orderbook.market_type,
+            orderbook.symbol.clone(),
+        );
         debug!(
             "Cached orderbook for {}/{}",
             orderbook.exchange.as_str(),
@@ -96,9 +119,10 @@ impl CacheHandle {
     pub async fn get_orderbook(
         &self,
         exchange: &ExchangeId,
+        market_type: MarketType,
         symbol: &Symbol,
     ) -> Option<OrderBookSnapshot> {
-        let key = OrderBookKey::new(exchange.clone(), symbol.clone());
+        let key = OrderBookKey::new(exchange.clone(), market_type, symbol.clone());
         self.inner
             .orderbooks
             .get(&key)
@@ -209,6 +233,7 @@ mod tests {
         let ticker = Ticker {
             timestamp: now(),
             exchange: ExchangeId::from("binance"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new("BTC", "USDT"),
             bid: Decimal::new(50000, 0),
             ask: Decimal::new(50001, 0),
@@ -219,7 +244,9 @@ mod tests {
 
         handle.set_ticker(ticker.clone()).await;
 
-        let cached = handle.get_ticker(&ticker.exchange, &ticker.symbol).await;
+        let cached = handle
+            .get_ticker(&ticker.exchange, MarketType::Spot, &ticker.symbol)
+            .await;
         assert!(cached.is_some());
 
         let cached_ticker = cached.unwrap();
@@ -239,6 +266,7 @@ mod tests {
         let ticker = Ticker {
             timestamp: now(),
             exchange: ExchangeId::from("binance"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new("BTC", "USDT"),
             bid: Decimal::new(50000, 0),
             ask: Decimal::new(50001, 0),

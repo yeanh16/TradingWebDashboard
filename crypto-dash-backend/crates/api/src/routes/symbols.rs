@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::Json,
 };
+use crypto_dash_core::model::MarketType;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -23,6 +24,7 @@ pub struct SymbolMetaDto {
     pub symbol: String,
     pub base: String,
     pub quote: String,
+    pub market_type: MarketType,
     pub display_name: String,
     pub price_precision: u32,
     pub tick_size: String,
@@ -59,6 +61,7 @@ pub async fn list_symbols(
                 symbol: symbol_key,
                 base: meta.base,
                 quote: meta.quote,
+                market_type: meta.market_type,
                 display_name,
                 price_precision: meta.price_precision,
                 tick_size: meta.tick_size,
@@ -89,19 +92,24 @@ pub async fn list_symbols(
     if let Some(exchange_filter) = params.exchange {
         // Return symbols for specific exchange
         if let Some(symbols) = popular_symbols.get(&exchange_filter) {
-            let symbol_dtos: Vec<SymbolMetaDto> = symbols
-                .iter()
-                .map(|s| SymbolMetaDto {
+            let mut symbol_dtos: Vec<SymbolMetaDto> = Vec::new();
+            for s in symbols {
+                let spot = SymbolMetaDto {
                     symbol: s.symbol.clone(),
                     base: s.base.clone(),
                     quote: s.quote.clone(),
+                    market_type: MarketType::Spot,
                     display_name: s.display_name.clone(),
                     price_precision: 2, // Default precision
                     tick_size: "0.01".to_string(),
                     min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
                     step_size: rust_decimal::Decimal::new(1, 3), // 0.001
-                })
-                .collect();
+                };
+                let mut perp = spot.clone();
+                perp.market_type = MarketType::Perpetual;
+                symbol_dtos.push(spot);
+                symbol_dtos.push(perp);
+            }
 
             response.push(SymbolResponse {
                 exchange: exchange_filter,
@@ -112,19 +120,24 @@ pub async fn list_symbols(
         // Return symbols for all available exchanges
         for exchange in exchanges {
             if let Some(symbols) = popular_symbols.get(exchange.id.as_str()) {
-                let symbol_dtos: Vec<SymbolMetaDto> = symbols
-                    .iter()
-                    .map(|s| SymbolMetaDto {
+                let mut symbol_dtos: Vec<SymbolMetaDto> = Vec::new();
+                for s in symbols {
+                    let spot = SymbolMetaDto {
                         symbol: s.symbol.clone(),
                         base: s.base.clone(),
                         quote: s.quote.clone(),
+                        market_type: MarketType::Spot,
                         display_name: s.display_name.clone(),
                         price_precision: 2, // Default precision
                         tick_size: "0.01".to_string(),
                         min_qty: rust_decimal::Decimal::new(1, 3), // 0.001
                         step_size: rust_decimal::Decimal::new(1, 3), // 0.001
-                    })
-                    .collect();
+                    };
+                    let mut perp = spot.clone();
+                    perp.market_type = MarketType::Perpetual;
+                    symbol_dtos.push(spot);
+                    symbol_dtos.push(perp);
+                }
 
                 response.push(SymbolResponse {
                     exchange: exchange.id.as_str().to_string(),

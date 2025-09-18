@@ -39,6 +39,20 @@ impl Symbol {
     }
 }
 
+/// Market category for a given trading instrument
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MarketType {
+    Spot,
+    Perpetual,
+}
+
+impl Default for MarketType {
+    fn default() -> Self {
+        MarketType::Spot
+    }
+}
+
 /// Exchange-specific symbol information (legacy)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolInfo {
@@ -55,6 +69,7 @@ pub struct SymbolInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SymbolMeta {
     pub exchange: ExchangeId,
+    pub market_type: MarketType,
     pub symbol: String,
     pub base: String,
     pub quote: String,
@@ -84,6 +99,8 @@ impl PriceLevel {
 pub struct Ticker {
     pub timestamp: DateTime<Utc>,
     pub exchange: ExchangeId,
+    #[serde(default)]
+    pub market_type: MarketType,
     pub symbol: Symbol,
     pub bid: Decimal,
     pub ask: Decimal,
@@ -97,6 +114,8 @@ pub struct Ticker {
 pub struct OrderBookSnapshot {
     pub timestamp: DateTime<Utc>,
     pub exchange: ExchangeId,
+    #[serde(default)]
+    pub market_type: MarketType,
     pub symbol: Symbol,
     pub bids: Vec<PriceLevel>,
     pub asks: Vec<PriceLevel>,
@@ -108,6 +127,8 @@ pub struct OrderBookSnapshot {
 pub struct OrderBookDelta {
     pub timestamp: DateTime<Utc>,
     pub exchange: ExchangeId,
+    #[serde(default)]
+    pub market_type: MarketType,
     pub symbol: Symbol,
     pub bids_upserts: Vec<PriceLevel>,
     pub asks_upserts: Vec<PriceLevel>,
@@ -127,6 +148,8 @@ pub enum ChannelType {
 pub struct Channel {
     pub channel_type: ChannelType,
     pub exchange: ExchangeId,
+    #[serde(default)]
+    pub market_type: MarketType,
     pub symbol: Symbol,
     pub depth: Option<u16>, // for order book channels
 }
@@ -187,5 +210,22 @@ mod tests {
         let level = PriceLevel::new(Decimal::new(50000, 0), Decimal::new(1, 1));
         assert_eq!(level.price, Decimal::new(50000, 0));
         assert_eq!(level.quantity, Decimal::new(1, 1));
+    }
+
+    #[test]
+    fn ticker_defaults_to_spot_market() {
+        let ticker = Ticker {
+            timestamp: Utc::now(),
+            exchange: ExchangeId::from("binance"),
+            market_type: MarketType::default(),
+            symbol: Symbol::new("BTC", "USDT"),
+            bid: Decimal::new(50000, 0),
+            ask: Decimal::new(50010, 0),
+            last: Decimal::new(50005, 0),
+            bid_size: Decimal::new(1, 0),
+            ask_size: Decimal::new(1, 0),
+        };
+
+        assert_eq!(ticker.market_type, MarketType::Spot);
     }
 }

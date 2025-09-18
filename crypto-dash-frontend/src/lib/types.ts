@@ -1,3 +1,5 @@
+export type MarketType = 'spot' | 'perpetual';
+
 // Shared TypeScript types for the frontend
 
 export interface ExchangeInfo {
@@ -17,6 +19,7 @@ export interface Symbol {
 export interface Ticker {
   timestamp: string
   exchange: string
+  market_type: MarketType
   symbol: Symbol
   bid: number
   ask: number
@@ -53,6 +56,7 @@ export interface ClientMessage {
 export interface Channel {
   channel_type: 'ticker' | 'orderbook'
   exchange: string
+  market_type: MarketType
   symbol: Symbol
   depth?: number
 }
@@ -61,6 +65,7 @@ export interface SymbolInfo {
   symbol: string
   base: string
   quote: string
+  market_type: MarketType
   display_name: string
   price_precision?: number  // Optional for backwards compatibility
   tick_size?: string       // Optional for backwards compatibility
@@ -78,6 +83,7 @@ export interface SelectedTicker {
   base: string
   quote: string
   exchange: string
+  market_type: MarketType
   display_name: string
   price_precision?: number
   tick_size?: string

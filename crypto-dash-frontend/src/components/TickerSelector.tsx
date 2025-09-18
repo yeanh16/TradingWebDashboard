@@ -3,18 +3,20 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Search, X, Plus } from 'lucide-react'
 import { apiClient } from '@/lib/api'
-import { SymbolResponse, SymbolInfo, SelectedTicker } from '@/lib/types'
+import { SymbolResponse, SymbolInfo, SelectedTicker, MarketType } from '@/lib/types'
 
 interface TickerSelectorProps {
   selectedExchanges: string[]
   selectedTickers: SelectedTicker[]
   onTickersChange: (tickers: SelectedTicker[]) => void
+  activeMarketType: MarketType
 }
 
 export function TickerSelector({ 
   selectedExchanges, 
   selectedTickers, 
-  onTickersChange 
+  onTickersChange, 
+  activeMarketType 
 }: TickerSelectorProps) {
   const [availableSymbols, setAvailableSymbols] = useState<SymbolResponse[]>([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -45,7 +47,7 @@ export function TickerSelector({
     }
 
     loadSymbols()
-  }, [selectedExchanges])
+  }, [selectedExchanges, activeMarketType])
 
   // Filter symbols based on search term
   const filteredSymbols = useMemo(() => {
@@ -54,6 +56,7 @@ export function TickerSelector({
     const results: Array<SymbolInfo & { exchange: string }> = []
     availableSymbols.forEach(exchangeData => {
       exchangeData.symbols
+        .filter(symbol => symbol.market_type === activeMarketType)
         .filter(symbol => 
           symbol.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
           symbol.display_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -65,7 +68,7 @@ export function TickerSelector({
     })
     
     return results
-  }, [availableSymbols, searchTerm])
+  }, [availableSymbols, searchTerm, activeMarketType])
 
   const addTicker = (symbol: SymbolInfo & { exchange: string }) => {
     const newTicker: SelectedTicker = {
@@ -73,6 +76,7 @@ export function TickerSelector({
       base: symbol.base,
       quote: symbol.quote,
       exchange: symbol.exchange,
+      market_type: symbol.market_type,
       display_name: symbol.display_name,
       price_precision: symbol.price_precision,
       tick_size: symbol.tick_size,
@@ -82,7 +86,10 @@ export function TickerSelector({
 
     // Check if ticker is already selected
     const isAlreadySelected = selectedTickers.some(
-      ticker => ticker.symbol === newTicker.symbol && ticker.exchange === newTicker.exchange
+      ticker =>
+        ticker.symbol === newTicker.symbol &&
+        ticker.exchange === newTicker.exchange &&
+        ticker.market_type === newTicker.market_type
     )
 
     if (!isAlreadySelected) {
@@ -100,7 +107,10 @@ export function TickerSelector({
 
   const isTickerSelected = (symbol: SymbolInfo & { exchange: string }) => {
     return selectedTickers.some(
-      ticker => ticker.symbol === symbol.symbol && ticker.exchange === symbol.exchange
+      ticker =>
+        ticker.symbol === symbol.symbol &&
+        ticker.exchange === symbol.exchange &&
+        ticker.market_type === symbol.market_type
     )
   }
 
@@ -184,6 +194,9 @@ export function TickerSelector({
                       </div>
                     </div>
                     <div className="flex items-center space-x-2">
+                      <span className="text-xs bg-muted px-2 py-1 rounded capitalize">
+                        {symbol.market_type === 'spot' ? 'Spot' : 'Perpetual'}
+                      </span>
                       <span className="text-xs bg-muted px-2 py-1 rounded capitalize">
                         {symbol.exchange}
                       </span>

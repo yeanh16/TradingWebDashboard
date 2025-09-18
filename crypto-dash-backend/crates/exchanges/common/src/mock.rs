@@ -1,5 +1,5 @@
 use crypto_dash_core::{
-    model::{ExchangeId, StreamMessage, Symbol, Ticker},
+    model::{ExchangeId, MarketType, StreamMessage, Symbol, Ticker},
     time::now,
 };
 use crypto_dash_stream_hub::{HubHandle, Topic};
@@ -12,13 +12,14 @@ use tracing::info;
 /// Mock data generator for exchanges when real connections are not available
 pub struct MockDataGenerator {
     exchange_id: ExchangeId,
+    market_type: MarketType,
     hub: HubHandle,
     symbols: Vec<Symbol>,
     base_prices: std::collections::HashMap<String, Decimal>,
 }
 
 impl MockDataGenerator {
-    pub fn new(exchange_id: ExchangeId, hub: HubHandle) -> Self {
+    pub fn new(exchange_id: ExchangeId, market_type: MarketType, hub: HubHandle) -> Self {
         let symbols = vec![
             Symbol::new("BTC", "USDT"),
             Symbol::new("ETH", "USDT"),
@@ -47,6 +48,7 @@ impl MockDataGenerator {
 
         Self {
             exchange_id,
+            market_type,
             hub,
             symbols,
             base_prices,
@@ -55,8 +57,9 @@ impl MockDataGenerator {
 
     pub async fn start(&self) {
         info!(
-            "Starting mock data generator for exchange: {}",
-            self.exchange_id.as_str()
+            "Starting mock data generator for exchange: {} ({:?})",
+            self.exchange_id.as_str(),
+            self.market_type
         );
 
         let mut interval = interval(Duration::from_millis(1000)); // Update every second
@@ -74,7 +77,8 @@ impl MockDataGenerator {
         for symbol in &self.symbols {
             if let Some(base_price) = self.base_prices.get(&symbol.base) {
                 let ticker = self.create_mock_ticker(symbol, *base_price);
-                let topic = Topic::ticker(self.exchange_id.clone(), symbol.clone());
+                let topic =
+                    Topic::ticker(self.exchange_id.clone(), self.market_type, symbol.clone());
 
                 self.hub
                     .publish(&topic, StreamMessage::Ticker(ticker))
@@ -84,7 +88,7 @@ impl MockDataGenerator {
     }
 
     fn create_mock_ticker(&self, symbol: &Symbol, base_price: Decimal) -> Ticker {
-        // Generate realistic price variations (±1.5%) to simulate live market movement
+        // Generate realistic price variations (?1.5%) to simulate live market movement
         let variation = (rand::random::<f64>() - 0.5) * 0.03; // -1.5% to +1.5%
         let price_factor =
             Decimal::from_str(&(1.0 + variation).to_string()).unwrap_or(Decimal::ONE);
@@ -107,6 +111,7 @@ impl MockDataGenerator {
         Ticker {
             timestamp: now(),
             exchange: self.exchange_id.clone(),
+            market_type: self.market_type,
             symbol: symbol.clone(),
             bid,
             ask,
@@ -121,6 +126,7 @@ impl Clone for MockDataGenerator {
     fn clone(&self) -> Self {
         Self {
             exchange_id: self.exchange_id.clone(),
+            market_type: self.market_type,
             hub: self.hub.clone(),
             symbols: self.symbols.clone(),
             base_prices: self.base_prices.clone(),

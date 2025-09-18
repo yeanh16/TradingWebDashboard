@@ -7,7 +7,7 @@ import { TickerSelector } from '@/components/TickerSelector'
 import { LatencyBadge } from '@/components/LatencyBadge'
 import { useWebSocket } from '@/lib/useWebSocket'
 import { apiClient } from '@/lib/api'
-import { Channel, SelectedTicker, SymbolResponse, SymbolInfo } from '@/lib/types'
+import { Channel, SelectedTicker, SymbolResponse, SymbolInfo, MarketType } from '@/lib/types'
 
 interface Exchange {
   id: string
@@ -20,14 +20,17 @@ const MOCK_EXCHANGES: Exchange[] = [
   { id: 'bybit', name: 'Bybit', status: 'online' },
 ]
 
+const MARKET_TYPES: MarketType[] = ['spot', 'perpetual']
+
 const DEFAULT_TICKERS: SelectedTicker[] = [
-  { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', display_name: 'Bitcoin / USDT' },
-  { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', display_name: 'Ethereum / USDT' },
+  { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', market_type: 'spot', display_name: 'Bitcoin / USDT' },
+  { symbol: 'ETH-USDT', base: 'ETH', quote: 'USDT', exchange: 'binance', market_type: 'spot', display_name: 'Ethereum / USDT' },
 ]
 
 export default function HomePage() {
   const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance', 'bybit'])
   const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>(DEFAULT_TICKERS)
+  const [selectedMarketType, setSelectedMarketType] = useState<MarketType>('spot')
   const [symbolMetadata, setSymbolMetadata] = useState<Record<string, Record<string, SymbolInfo>>>(() => ({}))
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
@@ -94,7 +97,7 @@ export default function HomePage() {
       const nextTickers: SelectedTicker[] = []
 
       prev.forEach((ticker) => {
-        const meta = symbolMetadata[ticker.exchange]?.[ticker.symbol]
+        const meta = symbolMetadata[ticker.exchange]?.[`${ticker.symbol}::${ticker.market_type}`]
         if (!meta) {
           nextTickers.push(ticker)
           return
@@ -110,6 +113,11 @@ export default function HomePage() {
 
         if (meta.tick_size !== undefined && meta.tick_size !== ticker.tick_size) {
           nextTicker.tick_size = meta.tick_size
+          changed = true
+        }
+
+        if (meta.market_type && meta.market_type !== ticker.market_type) {
+          nextTicker.market_type = meta.market_type
           changed = true
         }
 
@@ -132,10 +140,11 @@ export default function HomePage() {
 
     // Create channels from selected tickers that match selected exchanges
     const channels: Channel[] = selectedTickers
-      .filter(ticker => selectedExchanges.includes(ticker.exchange))
+      .filter(ticker => selectedExchanges.includes(ticker.exchange) && ticker.market_type === selectedMarketType)
       .map(ticker => ({
         channel_type: 'ticker' as const,
         exchange: ticker.exchange,
+        market_type: ticker.market_type,
         symbol: {
           base: ticker.base,
           quote: ticker.quote,
@@ -151,7 +160,7 @@ export default function HomePage() {
         unsubscribe(channels)
       }
     }
-  }, [selectedExchanges, selectedTickers, wsState.connected])
+  }, [selectedExchanges, selectedTickers, selectedMarketType, wsState.connected, subscribe, unsubscribe])
 
   if (loading) {
     return (
@@ -173,6 +182,23 @@ export default function HomePage() {
         <LatencyBadge wsState={wsState} onClearError={clearError} />
       </div>
 
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-medium text-muted-foreground">Market Type</span>
+          <div className="inline-flex rounded-md border border-border bg-background p-1">
+            {MARKET_TYPES.map((type) => (
+              <button
+                key={type}
+                onClick={() => setSelectedMarketType(type)}
+                className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${selectedMarketType === type ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {type === 'spot' ? 'Spot' : 'Perpetual'}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="lg:col-span-3 space-y-6">
           <ExchangeSelector
@@ -184,6 +210,7 @@ export default function HomePage() {
             selectedExchanges={selectedExchanges}
             selectedTickers={selectedTickers}
             onTickersChange={setSelectedTickers}
+            activeMarketType={selectedMarketType}
           />
         </div>
         <div className="lg:col-span-9">
@@ -192,6 +219,7 @@ export default function HomePage() {
             selectedTickers={selectedTickers}
             tickers={tickers}
             wsConnected={wsState.connected}
+            activeMarketType={selectedMarketType}
           />
         </div>
       </div>

@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { TrendingUp, TrendingDown, Wifi, WifiOff } from 'lucide-react'
-import { Ticker, SelectedTicker } from '@/lib/types'
+import { Ticker, SelectedTicker, MarketType } from '@/lib/types'
 
 interface TickerData {
   symbol: string
   exchange: string
+  marketType: MarketType
   bid: number
   ask: number
   last: number
@@ -21,6 +22,7 @@ interface TickerTableProps {
   selectedTickers: SelectedTicker[]
   tickers: Record<string, Ticker>
   wsConnected: boolean
+  activeMarketType: MarketType
 }
 
 // Mock data for demonstration when no live data is available - updated with current realistic prices
@@ -28,6 +30,7 @@ const MOCK_TICKERS: TickerData[] = [
   {
     symbol: 'BTC-USDT',
     exchange: 'binance',
+    marketType: 'spot',
     bid: 110250.50,
     ask: 110251.75,
     last: 110251.00,
@@ -38,6 +41,7 @@ const MOCK_TICKERS: TickerData[] = [
   {
     symbol: 'ETH-USDT', 
     exchange: 'binance',
+    marketType: 'spot',
     bid: 4150.25,
     ask: 4150.95,
     last: 4150.60,
@@ -47,7 +51,7 @@ const MOCK_TICKERS: TickerData[] = [
   },
 ]
 
-export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsConnected }: TickerTableProps) {
+export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsConnected, activeMarketType }: TickerTableProps) {
   const [loading, setLoading] = useState(true)
   const [priceChanges, setPriceChanges] = useState<Record<string, 'up' | 'down' | null>>({})
 
@@ -57,17 +61,22 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
     
     // Map through selected tickers and try to find live data for them
     selectedTickers.forEach(selectedTicker => {
-      // Only show tickers for selected exchanges
+      if (selectedTicker.market_type !== activeMarketType) {
+        return
+      }
+
       if (!selectedExchanges.includes(selectedTicker.exchange)) {
         return
       }
 
-      // Try to find live ticker data
       const tickerKey = Object.keys(tickers).find(key => {
         const ticker = tickers[key]
-        return ticker.exchange === selectedTicker.exchange &&
-               ticker.symbol.base === selectedTicker.base &&
-               ticker.symbol.quote === selectedTicker.quote
+        return (
+          ticker.exchange === selectedTicker.exchange &&
+          ticker.market_type === selectedTicker.market_type &&
+          ticker.symbol.base === selectedTicker.base &&
+          ticker.symbol.quote === selectedTicker.quote
+        )
       })
 
       if (tickerKey) {
@@ -79,6 +88,7 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
         result.push({
           symbol: `${ticker.symbol.base}-${ticker.symbol.quote}`,
           exchange: ticker.exchange,
+          marketType: ticker.market_type,
           bid: ticker.bid,
           ask: ticker.ask,
           last: ticker.last,
@@ -93,12 +103,13 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
           mock.symbol === selectedTicker.symbol && mock.exchange === selectedTicker.exchange
         )
         if (mockTicker) {
-          result.push(mockTicker)
+          result.push({ ...mockTicker, marketType: selectedTicker.market_type })
         } else {
           // Create a placeholder mock ticker
           result.push({
             symbol: selectedTicker.symbol,
             exchange: selectedTicker.exchange,
+            marketType: selectedTicker.market_type,
             bid: 0,
             ask: 0,
             last: 0,
@@ -111,7 +122,7 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
     })
     
     return result
-  }, [tickers, selectedExchanges, selectedTickers, wsConnected])
+  }, [tickers, selectedExchanges, selectedTickers, wsConnected, activeMarketType])
 
   // Track price changes for visual feedback
   useEffect(() => {
@@ -214,6 +225,7 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
                 <tr className="border-b border-border">
                   <th className="text-left py-2 text-sm font-medium text-muted-foreground">Symbol</th>
                   <th className="text-left py-2 text-sm font-medium text-muted-foreground">Exchange</th>
+                  <th className="text-left py-2 text-sm font-medium text-muted-foreground">Market</th>
                   <th className="text-right py-2 text-sm font-medium text-muted-foreground">Last Price</th>
                   <th className="text-right py-2 text-sm font-medium text-muted-foreground">Bid</th>
                   <th className="text-right py-2 text-sm font-medium text-muted-foreground">Ask</th>
@@ -223,11 +235,13 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
               </thead>
               <tbody>
                 {displayTickers.map((ticker) => {
-                  const tickerKey = `${ticker.exchange}_${ticker.symbol.replace('-', '')}`
+                  const tickerKey = `${ticker.exchange}_${ticker.market_type}_${ticker.symbol.replace('-', '')}`
                   
                   // Find the selected ticker that matches this display ticker to get metadata
                   const selectedTicker = selectedTickers.find(st => 
-                    st.symbol === ticker.symbol && st.exchange === ticker.exchange
+                    st.symbol === ticker.symbol &&
+                    st.exchange === ticker.exchange &&
+                    st.market_type === ticker.market_type
                   )
                   
                   // Use price precision from metadata or default to 2
@@ -245,6 +259,11 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
                         <div className="text-sm text-muted-foreground capitalize">
                           {ticker.exchange}
                         </div>
+                      </td>
+                      <td className="py-3">
+                        <span className="text-xs uppercase tracking-wide text-muted-foreground">
+                          {ticker.market_type === 'spot' ? 'Spot' : 'Perpetual'}
+                        </span>
                       </td>
                       <td className="py-3 text-right font-mono">
                         ${formatPrice(ticker.last, pricePrecision)}

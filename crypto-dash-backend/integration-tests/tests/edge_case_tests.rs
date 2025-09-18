@@ -59,6 +59,7 @@ async fn test_memory_usage_stability() -> Result<()> {
         let ticker = Ticker {
             timestamp: chrono::Utc::now(),
             exchange: ExchangeId::from("binance"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new("BTC", "USDT"),
             bid: 50000.0 + counter as f64,
             ask: 50001.0 + counter as f64,
@@ -103,6 +104,7 @@ async fn test_stream_hub_subscriber_failures() -> Result<()> {
     let ticker = Ticker {
         timestamp: chrono::Utc::now(),
         exchange: ExchangeId::from("binance"),
+        market_type: MarketType::Spot,
         symbol: Symbol::new("BTC", "USDT"),
         bid: 50000.0,
         ask: 50001.0,
@@ -114,6 +116,7 @@ async fn test_stream_hub_subscriber_failures() -> Result<()> {
     let topic = crypto_dash_stream_hub::topics::TopicKey::from_channel(&Channel {
         channel_type: ChannelType::Ticker,
         exchange: ExchangeId::from("binance"),
+        market_type: MarketType::Spot,
         symbol: Symbol::new("BTC", "USDT"),
     });
 
@@ -175,6 +178,7 @@ async fn test_malformed_data_handling() -> Result<()> {
     let ticker = Ticker {
         timestamp: chrono::Utc::now(),
         exchange: ExchangeId::from("binance"),
+        market_type: MarketType::Spot,
         symbol: Symbol::new("BTC", "USDT"),
         bid: f64::NAN,
         ask: f64::INFINITY,
@@ -264,6 +268,7 @@ async fn test_resource_cleanup() -> Result<()> {
     let ticker = Ticker {
         timestamp: chrono::Utc::now(),
         exchange: ExchangeId::from("binance"),
+        market_type: MarketType::Spot,
         symbol: Symbol::new("BTC", "USDT"),
         bid: 50000.0,
         ask: 50001.0,
@@ -275,6 +280,7 @@ async fn test_resource_cleanup() -> Result<()> {
     let topic = crypto_dash_stream_hub::topics::TopicKey::from_channel(&Channel {
         channel_type: ChannelType::Ticker,
         exchange: ExchangeId::from("binance"),
+        market_type: MarketType::Spot,
         symbol: Symbol::new("BTC", "USDT"),
     });
 
@@ -382,6 +388,7 @@ async fn test_graceful_degradation() -> Result<()> {
         let ticker = Ticker {
             timestamp: chrono::Utc::now(),
             exchange: ExchangeId::from("binance"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new(&format!("SYM{}", i), "USDT"),
             bid: 1.0 + i as f64,
             ask: 1.01 + i as f64,

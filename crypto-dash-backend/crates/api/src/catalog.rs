@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use crypto_dash_cache::CacheHandle;
-use crypto_dash_core::model::{ExchangeId, SymbolMeta};
+use crypto_dash_core::model::{ExchangeId, MarketType, SymbolMeta};
 use crypto_dash_core::normalize::precision_from_tick_size;
 use crypto_dash_exchanges_common::ExchangeAdapter;
 use reqwest::Client;
@@ -209,20 +209,25 @@ impl ExchangeCatalog {
 
             let price_precision = precision_from_tick_size(&tick_size).unwrap_or(2);
 
-            let symbol_meta = SymbolMeta {
+            let spot_meta = SymbolMeta {
                 exchange: exchange_id.clone(),
-                symbol: symbol.symbol,
-                base: symbol.base_asset,
-                quote: symbol.quote_asset,
+                market_type: MarketType::Spot,
+                symbol: symbol.symbol.clone(),
+                base: symbol.base_asset.clone(),
+                quote: symbol.quote_asset.clone(),
                 price_precision,
-                tick_size,
+                tick_size: tick_size.clone(),
                 min_qty,
                 step_size,
-                filters: Some(filters_map),
+                filters: Some(filters_map.clone()),
                 info: serde_json::to_value(&symbol_for_info).unwrap_or(Value::Null),
             };
 
-            symbols.push(symbol_meta);
+            let mut perp_meta = spot_meta.clone();
+            perp_meta.market_type = MarketType::Perpetual;
+
+            symbols.push(spot_meta);
+            symbols.push(perp_meta);
         }
 
         Ok(symbols)
@@ -274,20 +279,25 @@ impl ExchangeCatalog {
                 }
             }
 
-            let symbol_meta = SymbolMeta {
+            let spot_meta = SymbolMeta {
                 exchange: exchange_id.clone(),
-                symbol: symbol.symbol,
-                base: symbol.base_coin,
-                quote: symbol.quote_coin,
+                market_type: MarketType::Spot,
+                symbol: symbol.symbol.clone(),
+                base: symbol.base_coin.clone(),
+                quote: symbol.quote_coin.clone(),
                 price_precision,
-                tick_size,
+                tick_size: tick_size.clone(),
                 min_qty,
                 step_size,
-                filters: Some(filters_map),
+                filters: Some(filters_map.clone()),
                 info: serde_json::to_value(&symbol_for_info).unwrap_or(Value::Null),
             };
 
-            symbols.push(symbol_meta);
+            let mut perp_meta = spot_meta.clone();
+            perp_meta.market_type = MarketType::Perpetual;
+
+            symbols.push(spot_meta);
+            symbols.push(perp_meta);
         }
 
         Ok(symbols)
@@ -310,9 +320,10 @@ impl ExchangeCatalog {
 
         // Create minimal fallback symbols
         let exchange_id = ExchangeId::from(exchange_name);
-        let fallback_symbols = vec![
+        let mut fallback_symbols = vec![
             SymbolMeta {
                 exchange: exchange_id.clone(),
+                market_type: MarketType::Spot,
                 symbol: "BTCUSDT".to_string(),
                 base: "BTC".to_string(),
                 quote: "USDT".to_string(),
@@ -325,6 +336,7 @@ impl ExchangeCatalog {
             },
             SymbolMeta {
                 exchange: exchange_id.clone(),
+                market_type: MarketType::Spot,
                 symbol: "ETHUSDT".to_string(),
                 base: "ETH".to_string(),
                 quote: "USDT".to_string(),
@@ -336,6 +348,16 @@ impl ExchangeCatalog {
                 info: Value::Null,
             },
         ];
+
+        let mut perp_entries: Vec<SymbolMeta> = fallback_symbols
+            .iter()
+            .map(|meta| {
+                let mut clone = meta.clone();
+                clone.market_type = MarketType::Perpetual;
+                clone
+            })
+            .collect();
+        fallback_symbols.append(&mut perp_entries);
 
         let mut cache = self.symbol_cache.write().await;
         cache.insert(exchange_name.to_string(), fallback_symbols);

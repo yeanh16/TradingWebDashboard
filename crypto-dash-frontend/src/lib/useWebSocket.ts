@@ -117,7 +117,7 @@ export function useWebSocket(): UseWebSocketReturn {
           // Handle ticker updates
           if (message.type === 'ticker' && message.payload) {
             const ticker = message.payload as Ticker
-            const tickerKey = `${ticker.exchange}_${ticker.symbol.base}${ticker.symbol.quote}`
+            const tickerKey = `${ticker.exchange}_${ticker.market_type}_${ticker.symbol.base}${ticker.symbol.quote}`
             setTickers(prev => ({
               ...prev,
               [tickerKey]: ticker

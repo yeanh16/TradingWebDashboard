@@ -6,7 +6,9 @@ use async_trait::async_trait;
 
 use crypto_dash_cache::CacheHandle;
 
-use crypto_dash_core::model::{Channel, ChannelType, ExchangeId, StreamMessage, Symbol, Ticker};
+use crypto_dash_core::model::{
+    Channel, ChannelType, ExchangeId, MarketType, StreamMessage, Symbol, Ticker,
+};
 
 use crypto_dash_exchanges_common::{ExchangeAdapter, MockDataGenerator, WsClient};
 
@@ -14,6 +16,7 @@ use crypto_dash_stream_hub::{HubHandle, Topic};
 
 use rust_decimal::Decimal;
 
+use std::collections::HashMap;
 use std::str::FromStr;
 
 use std::sync::Arc;
@@ -24,49 +27,103 @@ use tokio_tungstenite::tungstenite::Message;
 
 use tracing::{debug, error, info, warn};
 
-const BYBIT_WS_URL: &str = "wss://stream.bybit.com/v5/public/spot";
+const BYBIT_SPOT_WS_URL: &str = "wss://stream.bybit.com/v5/public/spot";
+const BYBIT_LINEAR_WS_URL: &str = "wss://stream.bybit.com/v5/public/linear";
+const SUPPORTED_MARKETS: [MarketType; 2] = [MarketType::Spot, MarketType::Perpetual];
 
 #[derive(Clone)]
-
 pub struct BybitAdapter {
-    ws_client: Arc<Mutex<Option<Arc<WsClient>>>>,
+    ws_clients: Arc<Mutex<HashMap<MarketType, Option<Arc<WsClient>>>>>,
 
     hub: Arc<Mutex<Option<HubHandle>>>,
 
     cache: Arc<Mutex<Option<CacheHandle>>>,
 
-    mock_generator: Arc<Mutex<Option<MockDataGenerator>>>,
+    mock_generators: Arc<Mutex<HashMap<MarketType, Option<MockDataGenerator>>>>,
 
-    use_mock_data: Arc<Mutex<bool>>,
+    use_mock_data: Arc<Mutex<HashMap<MarketType, bool>>>,
 }
 
 impl BybitAdapter {
     pub fn new() -> Self {
+        let mut ws_clients = HashMap::new();
+        let mut mock_generators = HashMap::new();
+        let mut use_mock_data = HashMap::new();
+
+        for market in SUPPORTED_MARKETS {
+            ws_clients.insert(market, None);
+            mock_generators.insert(market, None);
+            use_mock_data.insert(market, false);
+        }
+
         Self {
-            ws_client: Arc::new(Mutex::new(None)),
+            ws_clients: Arc::new(Mutex::new(ws_clients)),
 
             hub: Arc::new(Mutex::new(None)),
 
             cache: Arc::new(Mutex::new(None)),
 
-            mock_generator: Arc::new(Mutex::new(None)),
+            mock_generators: Arc::new(Mutex::new(mock_generators)),
 
-            use_mock_data: Arc::new(Mutex::new(false)),
+            use_mock_data: Arc::new(Mutex::new(use_mock_data)),
         }
     }
 
-    async fn handle_message(&self, message: BybitMessage) -> Result<()> {
+    fn market_label(market_type: MarketType) -> &'static str {
+        match market_type {
+            MarketType::Spot => "spot",
+            MarketType::Perpetual => "perpetual",
+        }
+    }
+
+    async fn mock_enabled(&self, market_type: MarketType) -> bool {
+        let guard = self.use_mock_data.lock().await;
+        guard.get(&market_type).copied().unwrap_or(false)
+    }
+
+    async fn set_mock_enabled(&self, market_type: MarketType, enabled: bool) {
+        let mut guard = self.use_mock_data.lock().await;
+        if let Some(entry) = guard.get_mut(&market_type) {
+            *entry = enabled;
+        }
+    }
+
+    async fn get_ws_client(&self, market_type: MarketType) -> Option<Arc<WsClient>> {
+        let guard = self.ws_clients.lock().await;
+        guard
+            .get(&market_type)
+            .and_then(|client| client.as_ref().cloned())
+    }
+
+    async fn set_ws_client(&self, market_type: MarketType, client: Option<Arc<WsClient>>) {
+        let mut guard = self.ws_clients.lock().await;
+        if let Some(entry) = guard.get_mut(&market_type) {
+            *entry = client;
+        }
+    }
+
+    async fn get_mock_generator(&self, market_type: MarketType) -> Option<MockDataGenerator> {
+        let guard = self.mock_generators.lock().await;
+        guard.get(&market_type).cloned().flatten()
+    }
+
+    async fn set_mock_generator(
+        &self,
+        market_type: MarketType,
+        generator: Option<MockDataGenerator>,
+    ) {
+        let mut guard = self.mock_generators.lock().await;
+        if let Some(entry) = guard.get_mut(&market_type) {
+            *entry = generator;
+        }
+    }
+
+    async fn handle_message(&self, market_type: MarketType, message: BybitMessage) -> Result<()> {
         match message {
-            BybitMessage::Ticker {
-                topic: _,
-
-                ts,
-
-                message_type: _,
-
-                data,
-            } => {
-                self.handle_ticker(data, ts).await?;
+            BybitMessage::Ticker { ts, data, .. } => {
+                for ticker in data.into_vec() {
+                    self.handle_ticker(market_type, ticker, ts).await?;
+                }
             }
 
             BybitMessage::Subscription { success, ret_msg } => {
@@ -91,20 +148,49 @@ impl BybitAdapter {
         Ok(())
     }
 
-    async fn handle_ticker(&self, ticker: BybitTicker, timestamp_ms: u64) -> Result<()> {
+    async fn handle_ticker(
+        &self,
+        market_type: MarketType,
+        ticker: BybitTicker,
+        timestamp_ms: u64,
+    ) -> Result<()> {
         let symbol = self.parse_symbol(&ticker.symbol)?;
 
         let timestamp = crypto_dash_core::time::from_millis(timestamp_ms as i64)
             .ok_or_else(|| anyhow!("Invalid timestamp: {}", timestamp_ms))?;
 
-        let bid_price = ticker.bid_price.as_deref().unwrap_or(&ticker.last_price);
-        let ask_price = ticker.ask_price.as_deref().unwrap_or(&ticker.last_price);
-        let bid_size = ticker.bid_size.as_deref().unwrap_or("0");
-        let ask_size = ticker.ask_size.as_deref().unwrap_or("0");
+        let bid_price = ticker
+            .bid1_price
+            .as_deref()
+            .filter(|v| !v.is_empty())
+            .or_else(|| ticker.bid_price.as_deref().filter(|v| !v.is_empty()))
+            .unwrap_or_else(|| ticker.last_price.as_str());
+
+        let ask_price = ticker
+            .ask1_price
+            .as_deref()
+            .filter(|v| !v.is_empty())
+            .or_else(|| ticker.ask_price.as_deref().filter(|v| !v.is_empty()))
+            .unwrap_or_else(|| ticker.last_price.as_str());
+
+        let bid_size = ticker
+            .bid1_size
+            .as_deref()
+            .filter(|v| !v.is_empty())
+            .or_else(|| ticker.bid_size.as_deref().filter(|v| !v.is_empty()))
+            .unwrap_or("0");
+
+        let ask_size = ticker
+            .ask1_size
+            .as_deref()
+            .filter(|v| !v.is_empty())
+            .or_else(|| ticker.ask_size.as_deref().filter(|v| !v.is_empty()))
+            .unwrap_or("0");
 
         let normalized_ticker = Ticker {
             timestamp,
             exchange: self.id(),
+            market_type,
             symbol: symbol.clone(),
             bid: Decimal::from_str(bid_price)?,
             ask: Decimal::from_str(ask_price)?,
@@ -117,7 +203,7 @@ impl BybitAdapter {
             cache.set_ticker(normalized_ticker.clone()).await;
         }
 
-        let topic = Topic::ticker(self.id(), symbol);
+        let topic = Topic::ticker(self.id(), market_type, symbol);
 
         if let Some(hub) = &*self.hub.lock().await {
             hub.publish(&topic, StreamMessage::Ticker(normalized_ticker))
@@ -129,29 +215,36 @@ impl BybitAdapter {
         Ok(())
     }
 
-    async fn clear_ws_if_current(&self, ws_client: &Arc<WsClient>) -> bool {
-        let mut ws_guard = self.ws_client.lock().await;
-        if let Some(current) = ws_guard.as_ref() {
-            if Arc::ptr_eq(current, ws_client) {
-                *ws_guard = None;
-                return true;
+    async fn clear_ws_if_current(
+        &self,
+        market_type: MarketType,
+        ws_client: &Arc<WsClient>,
+    ) -> bool {
+        let mut ws_guard = self.ws_clients.lock().await;
+        if let Some(entry) = ws_guard.get_mut(&market_type) {
+            if let Some(current) = entry.as_ref() {
+                if Arc::ptr_eq(current, ws_client) {
+                    *entry = None;
+                    return true;
+                }
             }
         }
         false
     }
 
-    async fn reconnect_and_send(&self, message: &str) -> Result<()> {
-        match self.try_real_connection().await {
-            Ok(()) => {
-                info!("Bybit: Reconnected WebSocket, resending subscription");
-                let ws_client = {
-                    let ws_guard = self.ws_client.lock().await;
-                    ws_guard.clone()
-                };
-
-                if let Some(client) = ws_client {
+    async fn reconnect_and_send(&self, market_type: MarketType, message: &str) -> Result<()> {
+        match self.try_real_connection(market_type).await {
+            Ok(_) => {
+                info!(
+                    market = Self::market_label(market_type),
+                    "Bybit: Reconnected WebSocket, resending subscription"
+                );
+                if let Some(client) = self.get_ws_client(market_type).await {
                     client.send_text(message).await?;
-                    info!("Bybit: Subscription sent after reconnect");
+                    info!(
+                        market = Self::market_label(market_type),
+                        "Bybit: Subscription sent after reconnect"
+                    );
                     Ok(())
                 } else {
                     Err(anyhow!(
@@ -159,7 +252,29 @@ impl BybitAdapter {
                     ))
                 }
             }
-            Err(e) => Err(e),
+            Err(e) => {
+                warn!(
+                    market = Self::market_label(market_type),
+                    "Bybit reconnect failed: {}", e
+                );
+
+                let hub_handle = {
+                    let hub_guard = self.hub.lock().await;
+                    hub_guard.clone()
+                };
+
+                if let Some(hub_handle) = hub_handle {
+                    self.start_mock_data(market_type, hub_handle).await?;
+                    self.set_mock_enabled(market_type, true).await;
+                    info!(
+                        market = Self::market_label(market_type),
+                        "Using Bybit mock data after reconnect failure"
+                    );
+                    Ok(())
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
 
@@ -174,10 +289,16 @@ impl BybitAdapter {
         };
 
         if should_disconnect {
-            let mut ws_guard = self.ws_client.lock().await;
-            if let Some(client) = ws_guard.take() {
-                info!("Bybit: No active subscribers, closing WebSocket connection");
-                client.close().await?;
+            let market_type = topic.market_type;
+            let mut ws_guard = self.ws_clients.lock().await;
+            if let Some(entry) = ws_guard.get_mut(&market_type) {
+                if let Some(client) = entry.take() {
+                    info!(
+                        market = Self::market_label(market_type),
+                        "Bybit market disconnected due to no subscribers"
+                    );
+                    client.close().await?;
+                }
             }
         }
 
@@ -185,15 +306,20 @@ impl BybitAdapter {
     }
 
     fn parse_symbol(&self, bybit_symbol: &str) -> Result<Symbol> {
-        // Bybit uses format like BTCUSDT
+        // Bybit uses formats like BTCUSDT, BTCUSDT_PERP, or SOLUSDT_SOL/USDT
+        let primary = bybit_symbol
+            .split(|c| c == '_' || c == '.')
+            .next()
+            .unwrap_or(bybit_symbol);
 
-        if bybit_symbol.ends_with("USDT") {
-            let base = &bybit_symbol[..bybit_symbol.len() - 4];
+        let sanitized = primary.replace('/', "");
+        let upper = sanitized.to_uppercase();
 
+        if let Some(base) = upper.strip_suffix("USDT") {
             Ok(Symbol::new(base, "USDT"))
-        } else if bybit_symbol.ends_with("USD") {
-            let base = &bybit_symbol[..bybit_symbol.len() - 3];
-
+        } else if let Some(base) = upper.strip_suffix("USDC") {
+            Ok(Symbol::new(base, "USDC"))
+        } else if let Some(base) = upper.strip_suffix("USD") {
             Ok(Symbol::new(base, "USD"))
         } else {
             Err(anyhow!("Unknown Bybit symbol format: {}", bybit_symbol))
@@ -286,7 +412,11 @@ impl BybitAdapter {
         Ok(unsubscription.to_string())
     }
 
-    async fn listen_for_messages(&self, ws_client: Arc<WsClient>) -> Result<()> {
+    async fn listen_for_messages(
+        &self,
+        market_type: MarketType,
+        ws_client: Arc<WsClient>,
+    ) -> Result<()> {
         loop {
             let message = match ws_client.next_message().await? {
                 Some(Message::Text(text)) => text,
@@ -310,7 +440,7 @@ impl BybitAdapter {
                 Ok(stream_message) => {
                     debug!("Received Bybit message: {:?}", stream_message);
 
-                    if let Err(e) = self.handle_message(stream_message).await {
+                    if let Err(e) = self.handle_message(market_type, stream_message).await {
                         error!("Failed to handle Bybit message: {}", e);
                     }
                 }
@@ -321,53 +451,214 @@ impl BybitAdapter {
             }
         }
 
-        let mut ws_guard = self.ws_client.lock().await;
+        let mut ws_guard = self.ws_clients.lock().await;
 
-        if let Some(current) = ws_guard.as_ref() {
-            if Arc::ptr_eq(current, &ws_client) {
-                *ws_guard = None;
+        if let Some(entry) = ws_guard.get_mut(&market_type) {
+            if let Some(current) = entry.as_ref() {
+                if Arc::ptr_eq(current, &ws_client) {
+                    *entry = None;
+                }
             }
         }
 
         Ok(())
     }
 
-    async fn try_real_connection(&self) -> Result<()> {
-        debug!("Attempting to connect to Bybit WebSocket: {}", BYBIT_WS_URL);
+    async fn try_real_connection(&self, market_type: MarketType) -> Result<Arc<WsClient>> {
+        let ws_url = match market_type {
+            MarketType::Spot => BYBIT_SPOT_WS_URL,
+            MarketType::Perpetual => BYBIT_LINEAR_WS_URL,
+        };
 
-        let ws_client = Arc::new(WsClient::new(BYBIT_WS_URL));
+        debug!(
+            market = Self::market_label(market_type),
+            "Attempting to connect to Bybit WebSocket: {}", ws_url
+        );
+
+        let ws_client = Arc::new(WsClient::new(ws_url));
 
         ws_client.connect().await?;
 
-        debug!("Bybit WebSocket handshake successful");
+        debug!(
+            market = Self::market_label(market_type),
+            "Bybit WebSocket handshake successful"
+        );
 
-        {
-            let mut guard = self.ws_client.lock().await;
-
-            *guard = Some(ws_client.clone());
-        }
+        self.set_ws_client(market_type, Some(ws_client.clone()))
+            .await;
+        self.set_mock_enabled(market_type, false).await;
 
         let adapter = self.clone();
-
         let listener_client = ws_client.clone();
+        let listener_market = market_type;
 
         tokio::spawn(async move {
-            if let Err(e) = adapter.listen_for_messages(listener_client).await {
-                error!("Bybit WebSocket listener error: {}", e);
+            if let Err(e) = adapter
+                .listen_for_messages(listener_market, listener_client)
+                .await
+            {
+                error!(
+                    market = BybitAdapter::market_label(listener_market),
+                    "Bybit WebSocket listener error: {}", e
+                );
             }
         });
+
+        Ok(ws_client)
+    }
+
+    async fn start_mock_data(&self, market_type: MarketType, hub: HubHandle) -> Result<()> {
+        info!(
+            market = Self::market_label(market_type),
+            "Starting Bybit mock data generator"
+        );
+
+        if self.get_mock_generator(market_type).await.is_some() {
+            return Ok(());
+        }
+
+        let mock_generator = MockDataGenerator::new(self.id(), market_type, hub);
+
+        mock_generator.start().await;
+
+        self.set_mock_generator(market_type, Some(mock_generator))
+            .await;
+
+        Ok(())
+    }
+    async fn subscribe_internal(&self, channels: &[Channel]) -> Result<()> {
+        info!("Subscribing to {} Bybit channels", channels.len());
+
+        if channels.is_empty() {
+            debug!("No Bybit channels to subscribe");
+            return Ok(());
+        }
+
+        let mut by_market: HashMap<MarketType, Vec<Channel>> = HashMap::new();
+        for channel in channels {
+            by_market
+                .entry(channel.market_type)
+                .or_insert_with(Vec::new)
+                .push(channel.clone());
+        }
+
+        for (market_type, market_channels) in by_market {
+            if market_channels.is_empty() {
+                continue;
+            }
+
+            if self.mock_enabled(market_type).await {
+                info!(
+                    market = Self::market_label(market_type),
+                    "Using mock data for Bybit market - subscription request acknowledged"
+                );
+                continue;
+            }
+
+            let subscription = self.format_subscription(&market_channels)?;
+            info!(
+                market = Self::market_label(market_type),
+                "Bybit subscription message: {}", subscription
+            );
+
+            match self.get_ws_client(market_type).await {
+                Some(ws_client) => match ws_client.send_text(&subscription).await {
+                    Ok(()) => {
+                        info!(
+                            market = Self::market_label(market_type),
+                            "Successfully sent Bybit subscription: {}", subscription
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            market = Self::market_label(market_type),
+                            "Failed to send Bybit subscription, connection may be broken: {}", e
+                        );
+
+                        let cleared = self.clear_ws_if_current(market_type, &ws_client).await;
+
+                        if cleared {
+                            warn!(
+                                market = Self::market_label(market_type),
+                                "Cleared broken Bybit WebSocket connection, attempting reconnect"
+                            );
+                        }
+
+                        self.reconnect_and_send(market_type, &subscription).await?;
+                    }
+                },
+                None => {
+                    warn!(
+                        market = Self::market_label(market_type),
+                        "Bybit WebSocket client not connected, attempting to reconnect"
+                    );
+                    self.reconnect_and_send(market_type, &subscription).await?;
+                }
+            }
+        }
 
         Ok(())
     }
 
-    async fn start_mock_data(&self, hub: HubHandle) -> Result<()> {
-        info!("Starting Bybit mock data generator");
+    async fn unsubscribe_internal(&self, channels: &[Channel]) -> Result<()> {
+        info!("Unsubscribing from {} Bybit channels", channels.len());
 
-        let mock_generator = MockDataGenerator::new(self.id(), hub);
+        if channels.is_empty() {
+            debug!("No Bybit channels to unsubscribe");
+            return Ok(());
+        }
 
-        mock_generator.start().await;
+        let mut by_market: HashMap<MarketType, Vec<Channel>> = HashMap::new();
+        for channel in channels {
+            by_market
+                .entry(channel.market_type)
+                .or_insert_with(Vec::new)
+                .push(channel.clone());
+        }
 
-        *self.mock_generator.lock().await = Some(mock_generator);
+        for (market_type, market_channels) in by_market {
+            if market_channels.is_empty() {
+                continue;
+            }
+
+            if self.mock_enabled(market_type).await {
+                info!(
+                    market = Self::market_label(market_type),
+                    "Using mock data for Bybit market - unsubscribe acknowledged"
+                );
+                continue;
+            }
+
+            let unsubscription = self.format_unsubscription(&market_channels)?;
+            info!(
+                market = Self::market_label(market_type),
+                "Bybit unsubscription message: {}", unsubscription
+            );
+
+            match self.get_ws_client(market_type).await {
+                Some(ws_client) => match ws_client.send_text(&unsubscription).await {
+                    Ok(()) => {
+                        info!(
+                            market = Self::market_label(market_type),
+                            "Successfully sent Bybit unsubscription: {}", unsubscription
+                        );
+                    }
+                    Err(e) => {
+                        error!(
+                            market = Self::market_label(market_type),
+                            "Failed to send Bybit unsubscription: {}", e
+                        );
+                        self.clear_ws_if_current(market_type, &ws_client).await;
+                    }
+                },
+                None => {
+                    warn!(
+                        market = Self::market_label(market_type),
+                        "Bybit WebSocket client not connected, unable to unsubscribe"
+                    );
+                }
+            }
+        }
 
         Ok(())
     }
@@ -383,181 +674,55 @@ impl ExchangeAdapter for BybitAdapter {
     async fn start(&self, hub: HubHandle, cache: CacheHandle) -> Result<()> {
         info!("Starting Bybit adapter");
 
-        // Store handles
-
         *self.hub.lock().await = Some(hub.clone());
-
         *self.cache.lock().await = Some(cache.clone());
 
-        // Try to connect to real WebSocket first
-
-        match self.try_real_connection().await {
-            Ok(()) => {
-                info!("Bybit adapter connected to real WebSocket");
-
-                *self.use_mock_data.lock().await = false;
-            }
-
-            Err(e) => {
-                warn!(
-                    "Failed to connect to real Bybit WebSocket: {}. Falling back to mock data.",
-                    e
-                );
-
-                self.start_mock_data(hub).await?;
-
-                *self.use_mock_data.lock().await = true;
-            }
-        }
-
-        debug!("Bybit adapter started with hub and cache handles");
+        debug!("Bybit adapter initialized with hub and cache handles");
 
         Ok(())
     }
 
     async fn subscribe(&self, channels: &[Channel]) -> Result<()> {
-        info!("Subscribing to {} Bybit channels", channels.len());
-
-        if channels.is_empty() {
-            debug!("No Bybit channels to subscribe");
-
-            return Ok(());
-        }
-
-        let use_mock = *self.use_mock_data.lock().await;
-
-        if use_mock {
-            info!("Using mock data for Bybit - subscription request acknowledged");
-
-            // Mock data generator is already running, just acknowledge the subscription
-
-            return Ok(());
-        }
-
-        let subscription = self.format_subscription(channels)?;
-
-        info!("Bybit subscription message: {}", subscription);
-
-        let ws_client = {
-            let ws_guard = self.ws_client.lock().await;
-
-            ws_guard.clone()
-        };
-
-        if let Some(ws_client) = ws_client {
-            match ws_client.send_text(&subscription).await {
-                Ok(()) => {
-                    info!("Successfully sent Bybit subscription: {}", subscription);
-                }
-
-                Err(e) => {
-                    error!(
-                        "Failed to send Bybit subscription, connection may be broken: {}",
-                        e
-                    );
-
-                    let cleared = self.clear_ws_if_current(&ws_client).await;
-
-                    if cleared {
-                        warn!("Cleared broken Bybit WebSocket connection, attempting reconnect");
-                    }
-
-                    if let Err(reconnect_err) = self.reconnect_and_send(&subscription).await {
-                        error!(
-                            "Failed to resend Bybit subscription after reconnect: {}",
-                            reconnect_err
-                        );
-
-                        return Err(reconnect_err);
-                    }
-                }
-            }
-        } else {
-            warn!("Bybit WebSocket client not connected, attempting to reconnect");
-
-            self.reconnect_and_send(&subscription).await?;
-        }
-
-        Ok(())
+        self.subscribe_internal(channels).await
     }
 
     async fn unsubscribe(&self, channels: &[Channel]) -> Result<()> {
-        info!("Unsubscribing from {} Bybit channels", channels.len());
-
-        if channels.is_empty() {
-            debug!("No Bybit channels to unsubscribe");
-
-            return Ok(());
-        }
-
-        let use_mock = *self.use_mock_data.lock().await;
-
-        if use_mock {
-            info!("Using mock data for Bybit - unsubscribe acknowledged");
-
-            return Ok(());
-        }
-
-        let unsubscription = self.format_unsubscription(channels)?;
-
-        info!("Bybit unsubscription message: {}", unsubscription);
-
-        let ws_client = {
-            let ws_guard = self.ws_client.lock().await;
-
-            ws_guard.clone()
-        };
-
-        if let Some(ws_client) = ws_client {
-            match ws_client.send_text(&unsubscription).await {
-                Ok(()) => {
-                    info!("Successfully sent Bybit unsubscription: {}", unsubscription);
-                }
-
-                Err(e) => {
-                    error!("Failed to send Bybit unsubscription: {}", e);
-
-                    let mut ws_guard = self.ws_client.lock().await;
-
-                    if let Some(current) = ws_guard.as_ref() {
-                        if Arc::ptr_eq(current, &ws_client) {
-                            *ws_guard = None;
-                        }
-                    }
-                }
-            }
-        } else {
-            warn!("Bybit WebSocket client not connected, unable to unsubscribe");
-        }
-
-        Ok(())
+        self.unsubscribe_internal(channels).await
     }
 
     async fn is_connected(&self) -> bool {
-        let use_mock = *self.use_mock_data.lock().await;
-
-        if use_mock {
-            // Mock data is always "connected"
-
-            return true;
+        {
+            let mock_guard = self.use_mock_data.lock().await;
+            if mock_guard.values().any(|enabled| *enabled) {
+                return true;
+            }
         }
 
-        let ws_guard = self.ws_client.lock().await;
-
-        if let Some(ws_client) = ws_guard.as_ref() {
-            ws_client.is_connected()
-        } else {
-            false
+        let ws_guard = self.ws_clients.lock().await;
+        for client in ws_guard.values() {
+            if let Some(client) = client {
+                if client.is_connected() {
+                    return true;
+                }
+            }
         }
+
+        false
     }
 
     async fn stop(&self) -> Result<()> {
         info!("Stopping Bybit adapter");
 
-        let mut ws_guard = self.ws_client.lock().await;
+        let mut ws_guard = self.ws_clients.lock().await;
 
-        if let Some(ws_client) = ws_guard.take() {
-            ws_client.close().await?;
+        for (market_type, client_opt) in ws_guard.iter_mut() {
+            if let Some(client) = client_opt.take() {
+                info!(
+                    market = Self::market_label(*market_type),
+                    "Closing Bybit WebSocket connection"
+                );
+                client.close().await?;
+            }
         }
 
         Ok(())
