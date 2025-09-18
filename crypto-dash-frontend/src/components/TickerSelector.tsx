@@ -86,11 +86,19 @@ export function TickerSelector({
 
     availableSymbols.forEach((exchangeData) => {
       exchangeData.symbols
-        .filter((symbol) =>
-          symbol.symbol.toLowerCase().includes(term) ||
-          symbol.display_name.toLowerCase().includes(term) ||
-          symbol.base.toLowerCase().includes(term)
-        )
+        .filter((symbol) => {
+          const base = symbol.base.toLowerCase();
+          const [displayBaseRaw] = symbol.display_name.split('/');
+          const displayBase = (displayBaseRaw ?? symbol.base).trim().toLowerCase();
+
+          const matchesBase = (
+            base.includes(term) ||
+            term.includes(base) ||
+            displayBase.includes(term)
+          );
+
+          return matchesBase;
+        })
         .forEach((symbol) => {
           const key = symbol.base.toUpperCase()
           if (!groups.has(key)) {
