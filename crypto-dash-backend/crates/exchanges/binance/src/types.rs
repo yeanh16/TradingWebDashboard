@@ -8,66 +8,48 @@ use serde::{Deserialize, Serialize};
 pub struct BinanceTicker {
     #[serde(default)]
     pub e: Option<String>, // event type (e.g. 24hrTicker)
-
     #[serde(rename = "E", default)]
     pub event_time: Option<i64>,
-
+    #[serde(default)]
     pub s: String, // symbol
-
     #[serde(default)]
     pub p: Option<String>, // price change
-
     #[serde(rename = "P", default)]
     pub price_change_percent: Option<String>,
-
     #[serde(default)]
     pub w: Option<String>, // weighted average price
-
     #[serde(default)]
     pub x: Option<String>, // first trade price
-
-    pub c: String, // last price
-
+    #[serde(default)]
+    pub c: Option<String>, // last price
     #[serde(rename = "Q", default)]
     pub last_qty: Option<String>,
-
-    pub b: String, // best bid price
-
+    #[serde(default)]
+    pub b: Option<String>, // Best bid price
     #[serde(rename = "B", default)]
-    pub best_bid_qty: Option<String>,
-
-    pub a: String, // best ask price
-
+    pub best_bid_qty: Option<String>, // Best bid qty
+    #[serde(default)]
+    pub a: Option<String>, // Best ask price
     #[serde(rename = "A", default)]
-    pub best_ask_qty: Option<String>,
-
+    pub best_ask_qty: Option<String>, // Best ask qty
     #[serde(default)]
     pub o: Option<String>, // open price
-
     #[serde(default)]
     pub h: Option<String>, // high price
-
     #[serde(default)]
     pub l: Option<String>, // low price
-
     #[serde(default)]
     pub v: Option<String>, // base asset volume
-
     #[serde(default)]
     pub q: Option<String>, // quote asset volume
-
     #[serde(rename = "O", default)]
     pub statistics_open_time: Option<i64>,
-
     #[serde(rename = "C", default)]
     pub statistics_close_time: Option<i64>,
-
     #[serde(rename = "F", default)]
     pub first_trade_id: Option<i64>,
-
     #[serde(rename = "L", default)]
     pub last_trade_id: Option<i64>,
-
     #[serde(default)]
     pub n: Option<i64>, // total number of trades
 }

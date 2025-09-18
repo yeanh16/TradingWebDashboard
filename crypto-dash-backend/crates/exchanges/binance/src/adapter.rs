@@ -185,6 +185,24 @@ impl BinanceAdapter {
 
         let ask_size = ticker.best_ask_qty.as_deref().unwrap_or("0");
 
+        let last_price = Decimal::from_str(ticker.c.as_deref().unwrap_or("0"))?;
+
+        let bid_price = ticker
+            .b
+            .as_deref()
+            .filter(|v| !v.is_empty())
+            .map(Decimal::from_str)
+            .transpose()?
+            .unwrap_or_else(|| last_price.clone());
+
+        let ask_price = ticker
+            .a
+            .as_deref()
+            .filter(|v| !v.is_empty())
+            .map(Decimal::from_str)
+            .transpose()?
+            .unwrap_or_else(|| last_price.clone());
+
         let normalized_ticker = Ticker {
             timestamp,
 
@@ -193,11 +211,11 @@ impl BinanceAdapter {
 
             symbol: symbol.clone(),
 
-            bid: Decimal::from_str(&ticker.b)?,
+            bid: bid_price,
 
-            ask: Decimal::from_str(&ticker.a)?,
+            ask: ask_price,
 
-            last: Decimal::from_str(&ticker.c)?,
+            last: last_price.clone(),
 
             bid_size: Decimal::from_str(bid_size)?,
 
@@ -681,3 +699,4 @@ impl Default for BinanceAdapter {
         Self::new()
     }
 }
+
