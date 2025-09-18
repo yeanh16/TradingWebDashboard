@@ -78,6 +78,16 @@ export interface SymbolResponse {
   symbols: SymbolInfo[]
 }
 
+export interface AllowedQuotes {
+  spot: string[]
+  perpetual: string[]
+}
+
+export interface SymbolsPayload {
+  allowed_quotes: AllowedQuotes
+  exchanges: SymbolResponse[]
+}
+
 export interface SelectedTicker {
   symbol: string
   base: string

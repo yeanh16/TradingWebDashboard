@@ -7,7 +7,7 @@ import { TickerSelector } from '@/components/TickerSelector'
 import { LatencyBadge } from '@/components/LatencyBadge'
 import { useWebSocket } from '@/lib/useWebSocket'
 import { apiClient } from '@/lib/api'
-import { Channel, SelectedTicker, SymbolResponse, SymbolInfo, MarketType } from '@/lib/types'
+import { Channel, SelectedTicker, SymbolResponse, SymbolInfo, MarketType, SymbolsPayload, AllowedQuotes } from '@/lib/types'
 
 interface Exchange {
   id: string
@@ -21,13 +21,7 @@ const MOCK_EXCHANGES: Exchange[] = [
 ]
 
 const MARKET_TYPES: MarketType[] = ['spot', 'perpetual']
-const SPOT_QUOTES = ['USDT', 'USDC', 'BUSD', 'TUSD', 'BTC', 'ETH'] as const
-const PERP_QUOTES = ['USDT', 'USDC', 'BUSD', 'TUSD'] as const
-type QuoteSymbol = (typeof SPOT_QUOTES)[number] | (typeof PERP_QUOTES)[number]
-const QUOTE_OPTIONS: Record<MarketType, readonly QuoteSymbol[]> = {
-  spot: SPOT_QUOTES,
-  perpetual: PERP_QUOTES,
-}
+type QuoteSymbol = string
 
 const DEFAULT_TICKERS: SelectedTicker[] = [
   { symbol: 'BTC-USDT', base: 'BTC', quote: 'USDT', exchange: 'binance', market_type: 'spot', display_name: 'Bitcoin / USDT' },
@@ -39,16 +33,31 @@ export default function HomePage() {
   const [selectedTickers, setSelectedTickers] = useState<SelectedTicker[]>(DEFAULT_TICKERS)
   const [selectedMarketType, setSelectedMarketType] = useState<MarketType>('spot')
   const [selectedQuoteSymbol, setSelectedQuoteSymbol] = useState<QuoteSymbol>('USDT')
+  const [allowedQuotes, setAllowedQuotes] = useState<AllowedQuotes>({ spot: [], perpetual: [] })
   const [symbolMetadata, setSymbolMetadata] = useState<Record<string, Record<string, SymbolInfo>>>(() => ({}))
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
   
   const { state: wsState, tickers, subscribe, unsubscribe, clearError } = useWebSocket()
 
+  useEffect(() => {
+    const allowed = allowedQuotes[selectedMarketType] ?? []
+    setSelectedQuoteSymbol((current) => {
+      if (allowed.length === 0) {
+        return current
+      }
+
+      return allowed.includes(current) ? current : allowed[0]
+    })
+  }, [allowedQuotes, selectedMarketType])
+
   const handleMarketTypeChange = (type: MarketType) => {
     setSelectedMarketType(type);
     setSelectedQuoteSymbol((current) => {
-      const allowed = QUOTE_OPTIONS[type];
+      const allowed = allowedQuotes[type] ?? [];
+      if (allowed.length === 0) {
+        return current;
+      }
       return allowed.includes(current) ? current : allowed[0];
     });
   };
@@ -61,10 +70,12 @@ export default function HomePage() {
 
     const loadMetadata = async () => {
       try {
-        const response = await apiClient.getSymbols() as SymbolResponse[]
+        const response = await apiClient.getSymbols() as SymbolsPayload
+        setAllowedQuotes(response.allowed_quotes)
+
         const metadataMap: Record<string, Record<string, SymbolInfo>> = {}
 
-        response.forEach((exchangeData) => {
+        response.exchanges.forEach((exchangeData) => {
           if (!selectedExchanges.includes(exchangeData.exchange)) {
             return
           }
@@ -220,7 +231,7 @@ export default function HomePage() {
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-muted-foreground">Quote</span>
           <div className="inline-flex flex-wrap gap-2 rounded-md border border-border bg-background p-1">
-            {QUOTE_OPTIONS[selectedMarketType].map((quote) => (
+            {(allowedQuotes[selectedMarketType] ?? []).map((quote) => (
               <button
                 key={quote}
                 onClick={() => setSelectedQuoteSymbol(quote)}
@@ -246,6 +257,7 @@ export default function HomePage() {
             onTickersChange={setSelectedTickers}
             activeMarketType={selectedMarketType}
             activeQuoteSymbol={selectedQuoteSymbol}
+            allowedQuotes={allowedQuotes}
           />
         </div>
         <div className="lg:col-span-9">

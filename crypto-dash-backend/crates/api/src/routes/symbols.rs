@@ -1,4 +1,4 @@
-use crate::catalog::is_quote_allowed;
+use crate::catalog::{is_quote_allowed, ALLOWED_PERP_QUOTES, ALLOWED_SPOT_QUOTES};
 use crate::state::AppState;
 use axum::{
     extract::{Query, State},
@@ -42,11 +42,32 @@ pub struct SymbolInfo {
     pub display_name: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AllowedQuotesDto {
+    pub spot: Vec<String>,
+    pub perpetual: Vec<String>,
+}
+
+impl AllowedQuotesDto {
+    fn new() -> Self {
+        Self {
+            spot: ALLOWED_SPOT_QUOTES.iter().map(|s| s.to_string()).collect(),
+            perpetual: ALLOWED_PERP_QUOTES.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SymbolsResponseDto {
+    pub allowed_quotes: AllowedQuotesDto,
+    pub exchanges: Vec<SymbolResponse>,
+}
+
 /// GET /api/symbols - Get available trading symbols for exchanges
 pub async fn list_symbols(
     Query(params): Query<SymbolsQuery>,
     State(state): State<AppState>,
-) -> Result<Json<Vec<SymbolResponse>>, StatusCode> {
+) -> Result<Json<SymbolsResponseDto>, StatusCode> {
     // Try to get symbols from the catalog first
     let symbol_metas = state.get_symbol_meta(params.exchange.as_deref()).await;
 
@@ -85,7 +106,10 @@ pub async fn list_symbols(
             .map(|(exchange, symbols)| SymbolResponse { exchange, symbols })
             .collect();
 
-        return Ok(Json(response));
+        return Ok(Json(SymbolsResponseDto {
+            allowed_quotes: AllowedQuotesDto::new(),
+            exchanges: response,
+        }));
     }
 
     // Fallback to curated list if no symbols are available
@@ -162,7 +186,10 @@ pub async fn list_symbols(
         }
     }
 
-    Ok(Json(response))
+    Ok(Json(SymbolsResponseDto {
+        allowed_quotes: AllowedQuotesDto::new(),
+        exchanges: response,
+    }))
 }
 
 /// POST /api/symbols/refresh - Refresh symbol metadata for an exchange

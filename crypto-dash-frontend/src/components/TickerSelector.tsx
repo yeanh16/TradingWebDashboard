@@ -3,16 +3,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Search, X, Plus } from 'lucide-react'
 import { apiClient } from '@/lib/api'
-import { SymbolResponse, SymbolInfo, SelectedTicker, MarketType } from '@/lib/types'
+import { SymbolResponse, SymbolInfo, SelectedTicker, MarketType, SymbolsPayload, AllowedQuotes } from '@/lib/types'
 
 const MARKET_TYPE_LABEL: Record<MarketType, string> = {
   spot: 'Spot',
   perpetual: 'Perpetual',
-}
-
-const ALLOWED_QUOTES: Record<MarketType, readonly string[]> = {
-  spot: ['USDT', 'USDC', 'BUSD', 'TUSD', 'BTC', 'ETH'],
-  perpetual: ['USDT', 'USDC', 'BUSD', 'TUSD'],
 }
 
 const formatExchange = (value: string) => (value ? value.charAt(0).toUpperCase() + value.slice(1) : value)
@@ -23,6 +18,7 @@ interface TickerSelectorProps {
   onTickersChange: (tickers: SelectedTicker[]) => void
   activeMarketType: MarketType
   activeQuoteSymbol: string
+  allowedQuotes: AllowedQuotes
 }
 
 type SymbolOption = SymbolInfo & { exchange: string }
@@ -50,6 +46,7 @@ export function TickerSelector({
   onTickersChange,
   activeMarketType,
   activeQuoteSymbol,
+  allowedQuotes,
 }: TickerSelectorProps) {
   const [availableSymbols, setAvailableSymbols] = useState<SymbolResponse[]>([])
   const [searchTerm, setSearchTerm] = useState('')
@@ -65,8 +62,8 @@ export function TickerSelector({
 
       setLoading(true)
       try {
-        const response = (await apiClient.getSymbols()) as SymbolResponse[]
-        const filteredSymbols = response.filter((item) =>
+        const response = (await apiClient.getSymbols()) as SymbolsPayload
+        const filteredSymbols = response.exchanges.filter((item) =>
           selectedExchanges.includes(item.exchange)
         )
         setAvailableSymbols(filteredSymbols)
@@ -105,9 +102,9 @@ export function TickerSelector({
           return matchesBase;
         })
         .forEach((symbol) => {
-          const allowedQuotes = ALLOWED_QUOTES[symbol.market_type];
+          const allowedForMarket = allowedQuotes[symbol.market_type] ?? [];
           const quote = symbol.quote.toLowerCase();
-          if (!allowedQuotes.some((allowed) => allowed.toLowerCase() === quote)) {
+          if (!allowedForMarket.some((allowed) => allowed.toLowerCase() === quote)) {
             return;
           }
 
@@ -143,7 +140,7 @@ export function TickerSelector({
     result.sort((a, b) => a.displayName.localeCompare(b.displayName))
 
     return result
-  }, [availableSymbols, searchTerm])
+  }, [availableSymbols, searchTerm, allowedQuotes])
 
   const selectedGroups = useMemo<SelectedTickerGroup[]>(() => {
     const map = new Map<string, SelectedTickerGroup>()
