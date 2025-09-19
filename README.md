@@ -1,3 +1,4 @@
+Deployed using Railway and Docker: https://tradingwebdashboard-production.up.railway.app/
 # Crypto Trading Dashboard
 
 Monorepo for a real-time cryptocurrency market dashboard. A Rust backend ingests and normalizes exchange data and exposes REST + WebSocket APIs, while a Next.js frontend renders an interactive trading view.
