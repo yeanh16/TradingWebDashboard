@@ -20,6 +20,10 @@ WORKDIR /app
 # Copy the entire workspace
 COPY . .
 
+# Set environment variable for frontend build
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # Build the frontend
 WORKDIR /app/crypto-dash-frontend
 RUN npm install
@@ -50,5 +54,8 @@ EXPOSE 8080
 CMD ["./usr/local/bin/app"]
 
 # To build and run the Docker container:
-# docker build -t trading-dashboard .
+# docker build \
+#  --build-arg NEXT_PUBLIC_API_URL=https://tradingwebdashboard-production.up.railway.app \
+#  -t trading-dashboard .
+
 # docker run -p 8080:8080 trading-dashboard
