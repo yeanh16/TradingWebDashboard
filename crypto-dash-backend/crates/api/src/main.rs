@@ -16,7 +16,7 @@ use crypto_dash_exchanges_common::ExchangeAdapter;
 use crypto_dash_stream_hub::StreamHub;
 use state::AppState;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
+use tower_http::{cors::CorsLayer, services::ServeDir};
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -94,6 +94,8 @@ async fn main() -> Result<()> {
         .route("/api/symbols/refresh", post(routes::refresh_symbols))
         // WebSocket endpoint
         .route("/ws", get(ws::websocket_handler))
+        // Serve static files from the frontend build
+        .nest_service("/", ServeDir::new("/usr/local/bin/static"))
         // Add middleware
         .layer(CorsLayer::permissive())
         .layer(tower_http::trace::TraceLayer::new_for_http())

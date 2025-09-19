@@ -1,5 +1,10 @@
 import { Server } from 'mock-socket';
 
+// Extend the global object to include mockServer
+declare global {
+  var mockServer: Server;
+}
+
 export default async function globalSetup() {
   // Set up any global test resources
   console.log('Setting up global test environment...');
@@ -9,7 +14,7 @@ export default async function globalSetup() {
   
   // Set environment variables for testing
   process.env.NEXT_PUBLIC_API_URL = 'http://localhost:8080';
-  process.env.NODE_ENV = 'test';
+  (process.env as any).NODE_ENV = 'test';
   
   console.log('Global test setup complete');
 }

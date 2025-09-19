@@ -7,7 +7,7 @@ import { Ticker, SelectedTicker, MarketType } from '@/lib/types'
 interface TickerData {
   symbol: string
   exchange: string
-  marketType: MarketType
+  market_type: MarketType
   bid: number
   ask: number
   last: number
@@ -31,7 +31,7 @@ const MOCK_TICKERS: TickerData[] = [
   {
     symbol: 'BTC-USDT',
     exchange: 'binance',
-    marketType: 'spot',
+    market_type: 'spot',
     bid: 110250.50,
     ask: 110251.75,
     last: 110251.00,
@@ -42,7 +42,7 @@ const MOCK_TICKERS: TickerData[] = [
   {
     symbol: 'ETH-USDT', 
     exchange: 'binance',
-    marketType: 'spot',
+    market_type: 'spot',
     bid: 4150.25,
     ask: 4150.95,
     last: 4150.60,
@@ -93,7 +93,7 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
         result.push({
           symbol: `${ticker.symbol.base}-${ticker.symbol.quote}`,
           exchange: ticker.exchange,
-          marketType: ticker.market_type,
+          market_type: ticker.market_type,
           bid: ticker.bid,
           ask: ticker.ask,
           last: ticker.last,
@@ -108,13 +108,13 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
           mock.symbol === selectedTicker.symbol && mock.exchange === selectedTicker.exchange
         )
         if (mockTicker) {
-          result.push({ ...mockTicker, marketType: selectedTicker.market_type })
+          result.push({ ...mockTicker, market_type: selectedTicker.market_type })
         } else {
           // Create a placeholder mock ticker
           result.push({
             symbol: selectedTicker.symbol,
             exchange: selectedTicker.exchange,
-            marketType: selectedTicker.market_type,
+            market_type: selectedTicker.market_type,
             bid: 0,
             ask: 0,
             last: 0,
