@@ -13,8 +13,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-pub const ALLOWED_SPOT_QUOTES: &[&str] = &["USDT", "USDC", "BUSD", "TUSD", "BTC", "ETH"];
-pub const ALLOWED_PERP_QUOTES: &[&str] = &["USDT", "USDC", "BUSD", "TUSD"];
+pub const ALLOWED_SPOT_QUOTES: &[&str] = &["USDT", "USDC", "TUSD"];
+pub const ALLOWED_PERP_QUOTES: &[&str] = &["USDT", "USDC"];
 
 pub fn is_quote_allowed(market_type: MarketType, quote: &str) -> bool {
     let allowed = match market_type {

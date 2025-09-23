@@ -299,10 +299,6 @@ impl BinanceAdapter {
             let base = &binance_symbol[..binance_symbol.len() - 4];
 
             Ok(Symbol::new(base, "USDC"))
-        } else if binance_symbol.ends_with("BUSD") {
-            let base = &binance_symbol[..binance_symbol.len() - 4];
-
-            Ok(Symbol::new(base, "BUSD"))
         } else if binance_symbol.ends_with("TUSD") {
             let base = &binance_symbol[..binance_symbol.len() - 4];
 
