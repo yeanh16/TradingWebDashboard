@@ -10,7 +10,7 @@ use crypto_dash_core::model::{
     Channel, ChannelType, ExchangeId, MarketType, StreamMessage, Symbol, Ticker,
 };
 
-use crypto_dash_exchanges_common::{ExchangeAdapter, MockDataGenerator, WsClient};
+use crypto_dash_exchanges_common::{ExchangeAdapter, WsClient};
 
 use crypto_dash_stream_hub::{HubHandle, Topic};
 
@@ -38,22 +38,16 @@ pub struct BybitAdapter {
     hub: Arc<Mutex<Option<HubHandle>>>,
 
     cache: Arc<Mutex<Option<CacheHandle>>>,
-
-    mock_generators: Arc<Mutex<HashMap<MarketType, Option<MockDataGenerator>>>>,
-
-    use_mock_data: Arc<Mutex<HashMap<MarketType, bool>>>,
 }
 
 impl BybitAdapter {
     pub fn new() -> Self {
         let mut ws_clients = HashMap::new();
-        let mut mock_generators = HashMap::new();
-        let mut use_mock_data = HashMap::new();
+    // no mock generators or mock flags - production behavior only
 
         for market in SUPPORTED_MARKETS {
             ws_clients.insert(market, None);
-            mock_generators.insert(market, None);
-            use_mock_data.insert(market, false);
+            // nothing to insert for mocks
         }
 
         Self {
@@ -63,9 +57,7 @@ impl BybitAdapter {
 
             cache: Arc::new(Mutex::new(None)),
 
-            mock_generators: Arc::new(Mutex::new(mock_generators)),
-
-            use_mock_data: Arc::new(Mutex::new(use_mock_data)),
+            // no mock state
         }
     }
 
@@ -77,15 +69,8 @@ impl BybitAdapter {
     }
 
     async fn mock_enabled(&self, market_type: MarketType) -> bool {
-        let guard = self.use_mock_data.lock().await;
-        guard.get(&market_type).copied().unwrap_or(false)
-    }
-
-    async fn set_mock_enabled(&self, market_type: MarketType, enabled: bool) {
-        let mut guard = self.use_mock_data.lock().await;
-        if let Some(entry) = guard.get_mut(&market_type) {
-            *entry = enabled;
-        }
+        // Mocks removed; always return false
+        false
     }
 
     async fn get_ws_client(&self, market_type: MarketType) -> Option<Arc<WsClient>> {
@@ -102,21 +87,14 @@ impl BybitAdapter {
         }
     }
 
-    async fn get_mock_generator(&self, market_type: MarketType) -> Option<MockDataGenerator> {
-        let guard = self.mock_generators.lock().await;
-        guard.get(&market_type).cloned().flatten()
+    async fn get_mock_generator(&self, _market_type: MarketType) -> Option<()> {
+        None
     }
 
-    async fn set_mock_generator(
-        &self,
-        market_type: MarketType,
-        generator: Option<MockDataGenerator>,
-    ) {
-        let mut guard = self.mock_generators.lock().await;
-        if let Some(entry) = guard.get_mut(&market_type) {
-            *entry = generator;
-        }
+    async fn set_mock_enabled(&self, _market_type: MarketType, _enabled: bool) {
+        // no-op: mocks removed
     }
+
 
     async fn handle_message(&self, market_type: MarketType, message: BybitMessage) -> Result<()> {
         match message {
@@ -253,27 +231,10 @@ impl BybitAdapter {
                 }
             }
             Err(e) => {
-                warn!(
-                    market = Self::market_label(market_type),
-                    "Bybit reconnect failed: {}", e
-                );
-
-                let hub_handle = {
-                    let hub_guard = self.hub.lock().await;
-                    hub_guard.clone()
-                };
-
-                if let Some(hub_handle) = hub_handle {
-                    self.start_mock_data(market_type, hub_handle).await?;
-                    self.set_mock_enabled(market_type, true).await;
-                    info!(
-                        market = Self::market_label(market_type),
-                        "Using Bybit mock data after reconnect failure"
-                    );
-                    Ok(())
-                } else {
-                    Err(e)
-                }
+                warn!(market = Self::market_label(market_type), "Bybit reconnect failed: {}", e);
+                // Do not fall back to mock data. Surface the error to callers so they
+                // can handle it gracefully. The UI will decide when to retry.
+                Err(e)
             }
         }
     }
@@ -319,6 +280,14 @@ impl BybitAdapter {
             Ok(Symbol::new(base, "USDT"))
         } else if let Some(base) = upper.strip_suffix("USDC") {
             Ok(Symbol::new(base, "USDC"))
+        } else if let Some(base) = upper.strip_suffix("BUSD") {
+            Ok(Symbol::new(base, "BUSD"))
+        } else if let Some(base) = upper.strip_suffix("TUSD") {
+            Ok(Symbol::new(base, "TUSD"))
+        } else if let Some(base) = upper.strip_suffix("BTC") {
+            Ok(Symbol::new(base, "BTC"))
+        } else if let Some(base) = upper.strip_suffix("ETH") {
+            Ok(Symbol::new(base, "ETH"))
         } else if let Some(base) = upper.strip_suffix("USD") {
             Ok(Symbol::new(base, "USD"))
         } else {
@@ -508,22 +477,7 @@ impl BybitAdapter {
     }
 
     async fn start_mock_data(&self, market_type: MarketType, hub: HubHandle) -> Result<()> {
-        info!(
-            market = Self::market_label(market_type),
-            "Starting Bybit mock data generator"
-        );
-
-        if self.get_mock_generator(market_type).await.is_some() {
-            return Ok(());
-        }
-
-        let mock_generator = MockDataGenerator::new(self.id(), market_type, hub);
-
-        mock_generator.start().await;
-
-        self.set_mock_generator(market_type, Some(mock_generator))
-            .await;
-
+        // Mocking removed; nothing to do
         Ok(())
     }
     async fn subscribe_internal(&self, channels: &[Channel]) -> Result<()> {
@@ -547,13 +501,7 @@ impl BybitAdapter {
                 continue;
             }
 
-            if self.mock_enabled(market_type).await {
-                info!(
-                    market = Self::market_label(market_type),
-                    "Using mock data for Bybit market - subscription request acknowledged"
-                );
-                continue;
-            }
+            // No mock behavior: attempt to send subscription or reconnect and return error to caller
 
             let subscription = self.format_subscription(&market_channels)?;
             info!(
@@ -575,15 +523,9 @@ impl BybitAdapter {
                             "Failed to send Bybit subscription, connection may be broken: {}", e
                         );
 
-                        let cleared = self.clear_ws_if_current(market_type, &ws_client).await;
+                        let _cleared = self.clear_ws_if_current(market_type, &ws_client).await;
 
-                        if cleared {
-                            warn!(
-                                market = Self::market_label(market_type),
-                                "Cleared broken Bybit WebSocket connection, attempting reconnect"
-                            );
-                        }
-
+                        // Attempt a reconnect/send once and propagate any error to caller
                         self.reconnect_and_send(market_type, &subscription).await?;
                     }
                 },
@@ -621,13 +563,7 @@ impl BybitAdapter {
                 continue;
             }
 
-            if self.mock_enabled(market_type).await {
-                info!(
-                    market = Self::market_label(market_type),
-                    "Using mock data for Bybit market - unsubscribe acknowledged"
-                );
-                continue;
-            }
+            // No mock behavior for unsubscribes
 
             let unsubscription = self.format_unsubscription(&market_channels)?;
             info!(
@@ -691,13 +627,6 @@ impl ExchangeAdapter for BybitAdapter {
     }
 
     async fn is_connected(&self) -> bool {
-        {
-            let mock_guard = self.use_mock_data.lock().await;
-            if mock_guard.values().any(|enabled| *enabled) {
-                return true;
-            }
-        }
-
         let ws_guard = self.ws_clients.lock().await;
         for client in ws_guard.values() {
             if let Some(client) = client {

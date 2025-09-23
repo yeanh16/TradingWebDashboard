@@ -1,4 +1,4 @@
-use crate::types::{BinanceOrderBook, BinanceStreamMessage, BinanceTicker};
+﻿use crate::types::{BinanceOrderBook, BinanceStreamMessage, BinanceTicker};
 
 use anyhow::{anyhow, Result};
 
@@ -14,7 +14,7 @@ use crypto_dash_core::{
     time::{from_millis, now, to_millis},
 };
 
-use crypto_dash_exchanges_common::{ExchangeAdapter, MockDataGenerator, WsClient};
+use crypto_dash_exchanges_common::{ExchangeAdapter, WsClient};
 
 use crypto_dash_stream_hub::{HubHandle, Topic};
 
@@ -40,28 +40,22 @@ pub struct BinanceAdapter {
     hub: Arc<Mutex<Option<HubHandle>>>,
     cache: Arc<Mutex<Option<CacheHandle>>>,
     ws_clients: Arc<Mutex<HashMap<MarketType, Option<Arc<WsClient>>>>>,
-    mock_generators: Arc<Mutex<HashMap<MarketType, Option<MockDataGenerator>>>>,
-    use_mock_data: Arc<Mutex<HashMap<MarketType, bool>>>,
+    // no mock generators or mock flags - production behavior only
 }
 
 impl BinanceAdapter {
     pub fn new() -> Self {
         let mut ws_clients = HashMap::new();
-        let mut mock_generators = HashMap::new();
-        let mut use_mock_data = HashMap::new();
-
         for market in SUPPORTED_MARKETS {
             ws_clients.insert(market, None);
-            mock_generators.insert(market, None);
-            use_mock_data.insert(market, false);
+            // nothing to insert for mocks
         }
 
         Self {
             hub: Arc::new(Mutex::new(None)),
             cache: Arc::new(Mutex::new(None)),
             ws_clients: Arc::new(Mutex::new(ws_clients)),
-            mock_generators: Arc::new(Mutex::new(mock_generators)),
-            use_mock_data: Arc::new(Mutex::new(use_mock_data)),
+            // no mock state
         }
     }
 
@@ -72,16 +66,9 @@ impl BinanceAdapter {
         }
     }
 
-    async fn mock_enabled(&self, market_type: MarketType) -> bool {
-        let guard = self.use_mock_data.lock().await;
-        guard.get(&market_type).copied().unwrap_or(false)
-    }
-
-    async fn set_mock_enabled(&self, market_type: MarketType, enabled: bool) {
-        let mut guard = self.use_mock_data.lock().await;
-        if let Some(entry) = guard.get_mut(&market_type) {
-            *entry = enabled;
-        }
+    // Mocks removed; always return false if asked
+    async fn mock_enabled(&self, _market_type: MarketType) -> bool {
+        false
     }
 
     async fn get_ws_client(&self, market_type: MarketType) -> Option<Arc<WsClient>> {
@@ -98,20 +85,12 @@ impl BinanceAdapter {
         }
     }
 
-    async fn get_mock_generator(&self, market_type: MarketType) -> Option<MockDataGenerator> {
-        let guard = self.mock_generators.lock().await;
-        guard.get(&market_type).cloned().flatten()
+    async fn get_mock_generator(&self, _market_type: MarketType) -> Option<()> {
+        None
     }
 
-    async fn set_mock_generator(
-        &self,
-        market_type: MarketType,
-        generator: Option<MockDataGenerator>,
-    ) {
-        let mut guard = self.mock_generators.lock().await;
-        if let Some(entry) = guard.get_mut(&market_type) {
-            *entry = generator;
-        }
+    async fn set_mock_enabled(&self, _market_type: MarketType, _enabled: bool) {
+        // no-op: mocks removed
     }
 
     async fn handle_message(
@@ -316,6 +295,18 @@ impl BinanceAdapter {
             let base = &binance_symbol[..binance_symbol.len() - 4];
 
             Ok(Symbol::new(base, "USDT"))
+        } else if binance_symbol.ends_with("USDC") {
+            let base = &binance_symbol[..binance_symbol.len() - 4];
+
+            Ok(Symbol::new(base, "USDC"))
+        } else if binance_symbol.ends_with("BUSD") {
+            let base = &binance_symbol[..binance_symbol.len() - 4];
+
+            Ok(Symbol::new(base, "BUSD"))
+        } else if binance_symbol.ends_with("TUSD") {
+            let base = &binance_symbol[..binance_symbol.len() - 4];
+
+            Ok(Symbol::new(base, "TUSD"))
         } else if binance_symbol.ends_with("BTC") {
             let base = &binance_symbol[..binance_symbol.len() - 3];
 
@@ -479,31 +470,13 @@ impl BinanceAdapter {
         Ok(ws_client)
     }
 
-    async fn start_mock_data(&self, market_type: MarketType, hub: HubHandle) -> Result<()> {
-        info!(
-            market = Self::market_label(market_type),
-            "Starting Binance mock data generator"
-        );
-
-        if self.get_mock_generator(market_type).await.is_some() {
-            return Ok(());
-        }
-
-        let mock_generator = MockDataGenerator::new(self.id(), market_type, hub);
-
-        mock_generator.start().await;
-
-        self.set_mock_generator(market_type, Some(mock_generator))
-            .await;
-
+    async fn start_mock_data(&self, _market_type: MarketType, _hub: HubHandle) -> Result<()> {
+        // Mocks removed; nothing to do
         Ok(())
     }
 
     async fn ensure_connection(&self, market_type: MarketType) -> Result<Option<Arc<WsClient>>> {
-        if self.mock_enabled(market_type).await {
-            return Ok(None);
-        }
-
+        // Do not fallback to mocks; attempt a real connection and propagate errors
         if let Some(client) = self.get_ws_client(market_type).await {
             if client.is_connected() {
                 return Ok(Some(client));
@@ -516,25 +489,7 @@ impl BinanceAdapter {
                 self.set_ws_client(market_type, Some(client.clone())).await;
                 Ok(Some(client))
             }
-            Err(err) => {
-                warn!(
-                    market = Self::market_label(market_type),
-                    "Failed to connect to Binance WebSocket: {}", err
-                );
-
-                let hub_handle = {
-                    let hub_guard = self.hub.lock().await;
-                    hub_guard.clone()
-                };
-
-                if let Some(hub_handle) = hub_handle {
-                    self.start_mock_data(market_type, hub_handle).await?;
-                    self.set_mock_enabled(market_type, true).await;
-                    Ok(None)
-                } else {
-                    Err(err)
-                }
-            }
+            Err(err) => Err(err),
         }
     }
     async fn subscribe_internal(&self, channels: &[Channel]) -> Result<()> {
@@ -656,13 +611,7 @@ impl ExchangeAdapter for BinanceAdapter {
     }
 
     async fn is_connected(&self) -> bool {
-        {
-            let mock_guard = self.use_mock_data.lock().await;
-            if mock_guard.values().any(|enabled| *enabled) {
-                return true;
-            }
-        }
-
+        // Mocks removed; only real ws client connections indicate connectivity
         let ws_guard = self.ws_clients.lock().await;
         for client in ws_guard.values() {
             if let Some(client) = client {
