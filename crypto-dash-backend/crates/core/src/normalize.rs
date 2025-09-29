@@ -3,6 +3,7 @@ use anyhow::Result;
 use std::collections::HashMap;
 
 /// Symbol normalization utilities
+#[derive(Clone)]
 pub struct SymbolMapper {
     /// Maps exchange-specific symbols to canonical symbols
     exchange_to_canonical: HashMap<(ExchangeId, String), Symbol>,

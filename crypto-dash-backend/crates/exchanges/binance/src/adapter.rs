@@ -11,6 +11,7 @@ use crypto_dash_core::{
         Channel, ChannelType, ExchangeId, MarketType, OrderBookSnapshot, PriceLevel, StreamMessage,
         Symbol, Ticker,
     },
+    normalize::SymbolMapper,
     time::{from_millis, now, to_millis},
 };
 
@@ -40,6 +41,7 @@ pub struct BinanceAdapter {
     hub: Arc<Mutex<Option<HubHandle>>>,
     cache: Arc<Mutex<Option<CacheHandle>>>,
     ws_clients: Arc<Mutex<HashMap<MarketType, Option<Arc<WsClient>>>>>,
+    symbol_mapper: SymbolMapper,
     // no mock generators or mock flags - production behavior only
 }
 
@@ -55,6 +57,7 @@ impl BinanceAdapter {
             hub: Arc::new(Mutex::new(None)),
             cache: Arc::new(Mutex::new(None)),
             ws_clients: Arc::new(Mutex::new(ws_clients)),
+            symbol_mapper: SymbolMapper::default(),
             // no mock state
         }
     }
@@ -289,27 +292,26 @@ impl BinanceAdapter {
     }
 
     fn parse_symbol(&self, binance_symbol: &str) -> Result<Symbol> {
-        // Simple parsing - in production, this should use the symbol mapper
+        // Use the symbol mapper for production-ready symbol normalization
+        if let Some(symbol) = self.symbol_mapper.to_canonical(&self.id(), binance_symbol) {
+            return Ok(symbol);
+        }
 
+        // Fallback to simple parsing for unmapped symbols
         if binance_symbol.ends_with("USDT") {
             let base = &binance_symbol[..binance_symbol.len() - 4];
-
             Ok(Symbol::new(base, "USDT"))
         } else if binance_symbol.ends_with("USDC") {
             let base = &binance_symbol[..binance_symbol.len() - 4];
-
             Ok(Symbol::new(base, "USDC"))
         } else if binance_symbol.ends_with("TUSD") {
             let base = &binance_symbol[..binance_symbol.len() - 4];
-
             Ok(Symbol::new(base, "TUSD"))
         } else if binance_symbol.ends_with("BTC") {
             let base = &binance_symbol[..binance_symbol.len() - 3];
-
             Ok(Symbol::new(base, "BTC"))
         } else if binance_symbol.ends_with("ETH") {
             let base = &binance_symbol[..binance_symbol.len() - 3];
-
             Ok(Symbol::new(base, "ETH"))
         } else {
             Err(anyhow!("Unsupported symbol format: {}", binance_symbol))

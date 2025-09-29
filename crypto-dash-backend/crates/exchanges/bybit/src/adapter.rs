@@ -6,8 +6,11 @@ use async_trait::async_trait;
 
 use crypto_dash_cache::CacheHandle;
 
-use crypto_dash_core::model::{
-    Channel, ChannelType, ExchangeId, MarketType, StreamMessage, Symbol, Ticker,
+use crypto_dash_core::{
+    model::{
+        Channel, ChannelType, ExchangeId, MarketType, StreamMessage, Symbol, Ticker,
+    },
+    normalize::SymbolMapper,
 };
 
 use crypto_dash_exchanges_common::{ExchangeAdapter, WsClient};
@@ -38,6 +41,7 @@ pub struct BybitAdapter {
     hub: Arc<Mutex<Option<HubHandle>>>,
 
     cache: Arc<Mutex<Option<CacheHandle>>>,
+    symbol_mapper: SymbolMapper,
 }
 
 impl BybitAdapter {
@@ -57,6 +61,7 @@ impl BybitAdapter {
 
             cache: Arc::new(Mutex::new(None)),
 
+            symbol_mapper: SymbolMapper::default(),
             // no mock state
         }
     }
@@ -267,6 +272,12 @@ impl BybitAdapter {
     }
 
     fn parse_symbol(&self, bybit_symbol: &str) -> Result<Symbol> {
+        // Use the symbol mapper for production-ready symbol normalization
+        if let Some(symbol) = self.symbol_mapper.to_canonical(&self.id(), bybit_symbol) {
+            return Ok(symbol);
+        }
+
+        // Fallback to simple parsing for unmapped symbols
         // Bybit uses formats like BTCUSDT, BTCUSDT_PERP, or SOLUSDT_SOL/USDT
         let primary = bybit_symbol
             .split(|c| c == '_' || c == '.')
@@ -280,8 +291,6 @@ impl BybitAdapter {
             Ok(Symbol::new(base, "USDT"))
         } else if let Some(base) = upper.strip_suffix("USDC") {
             Ok(Symbol::new(base, "USDC"))
-        } else if let Some(base) = upper.strip_suffix("BUSD") {
-            Ok(Symbol::new(base, "BUSD"))
         } else if let Some(base) = upper.strip_suffix("TUSD") {
             Ok(Symbol::new(base, "TUSD"))
         } else if let Some(base) = upper.strip_suffix("BTC") {
