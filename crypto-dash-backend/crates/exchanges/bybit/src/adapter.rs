@@ -7,9 +7,7 @@ use async_trait::async_trait;
 use crypto_dash_cache::CacheHandle;
 
 use crypto_dash_core::{
-    model::{
-        Channel, ChannelType, ExchangeId, MarketType, StreamMessage, Symbol, Ticker,
-    },
+    model::{Channel, ChannelType, ExchangeId, MarketType, StreamMessage, Symbol, Ticker},
     normalize::SymbolMapper,
 };
 
@@ -47,7 +45,7 @@ pub struct BybitAdapter {
 impl BybitAdapter {
     pub fn new() -> Self {
         let mut ws_clients = HashMap::new();
-    // no mock generators or mock flags - production behavior only
+        // no mock generators or mock flags - production behavior only
 
         for market in SUPPORTED_MARKETS {
             ws_clients.insert(market, None);
@@ -99,7 +97,6 @@ impl BybitAdapter {
     async fn set_mock_enabled(&self, _market_type: MarketType, _enabled: bool) {
         // no-op: mocks removed
     }
-
 
     async fn handle_message(&self, market_type: MarketType, message: BybitMessage) -> Result<()> {
         match message {
@@ -236,7 +233,10 @@ impl BybitAdapter {
                 }
             }
             Err(e) => {
-                warn!(market = Self::market_label(market_type), "Bybit reconnect failed: {}", e);
+                warn!(
+                    market = Self::market_label(market_type),
+                    "Bybit reconnect failed: {}", e
+                );
                 // Do not fall back to mock data. Surface the error to callers so they
                 // can handle it gracefully. The UI will decide when to retry.
                 Err(e)

@@ -14,6 +14,7 @@ use crypto_dash_cache::MemoryCache;
 use crypto_dash_core::config::Config;
 use crypto_dash_exchanges_common::ExchangeAdapter;
 use crypto_dash_stream_hub::StreamHub;
+use dotenvy::dotenv;
 use state::AppState;
 use std::sync::Arc;
 use tower_http::{cors::CorsLayer, services::ServeDir};
@@ -22,6 +23,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load variables from the local .env before tracing reads RUST_LOG
+    let _ = dotenv();
+
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
@@ -91,6 +95,7 @@ async fn main() -> Result<()> {
         // API routes
         .route("/api/exchanges", get(routes::list_exchanges))
         .route("/api/symbols", get(routes::list_symbols))
+        .route("/api/candles", get(routes::get_candles))
         .route("/api/symbols/refresh", post(routes::refresh_symbols))
         // WebSocket endpoint
         .route("/ws", get(ws::websocket_handler))

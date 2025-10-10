@@ -109,6 +109,17 @@ pub struct Ticker {
     pub ask_size: Decimal,
 }
 
+/// Candlestick data point
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Candlestick {
+    pub timestamp: DateTime<Utc>,
+    pub open: Decimal,
+    pub high: Decimal,
+    pub low: Decimal,
+    pub close: Decimal,
+    pub volume: Decimal,
+}
+
 /// Order book snapshot
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderBookSnapshot {

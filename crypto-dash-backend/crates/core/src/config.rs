@@ -9,7 +9,7 @@ pub struct Config {
     pub redis_url: String,
     pub book_depth_default: u16,
     pub log_level: String,
-    pub enable_real_connections: bool, // New flag for testing
+    pub enable_real_connections: bool,
 }
 
 impl Config {

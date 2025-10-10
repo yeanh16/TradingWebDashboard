@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod bybit_routing_tests {
-    use crypto_dash_core::model::{Channel, ChannelType, ClientMessage, ExchangeId, Symbol};
+    use crypto_dash_core::model::{
+        Channel, ChannelType, ClientMessage, ExchangeId, MarketType, Symbol,
+    };
     use std::collections::HashMap;
 
     #[test]
@@ -9,6 +11,7 @@ mod bybit_routing_tests {
         let channel = Channel {
             channel_type: ChannelType::Ticker,
             exchange: ExchangeId::from("bybit"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new("BTC", "USDT"),
             depth: None,
         };
@@ -59,6 +62,7 @@ mod bybit_routing_tests {
         let channel = Channel {
             channel_type: ChannelType::Ticker,
             exchange: ExchangeId::from("bybit"),
+            market_type: MarketType::Spot,
             symbol: Symbol::new("BTC", "USDT"),
             depth: None,
         };

@@ -3,6 +3,7 @@ use crypto_dash_cache::CacheHandle;
 use crypto_dash_core::model::{ExchangeInfo, SymbolMeta};
 use crypto_dash_exchanges_common::ExchangeAdapter;
 use crypto_dash_stream_hub::HubHandle;
+use reqwest::Client;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -15,6 +16,7 @@ pub struct AppState {
     pub cache: CacheHandle,
     pub exchanges: HashMap<String, Arc<dyn ExchangeAdapter>>,
     pub symbol_catalog: Arc<ExchangeCatalog>,
+    pub http_client: Client,
 }
 
 impl AppState {
@@ -25,6 +27,7 @@ impl AppState {
             cache,
             exchanges: HashMap::new(),
             symbol_catalog,
+            http_client: Client::new(),
         }
     }
 

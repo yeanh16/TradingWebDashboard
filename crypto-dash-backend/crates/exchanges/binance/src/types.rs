@@ -112,9 +112,9 @@ mod tests {
             BinanceStreamMessage::DirectTicker(ticker) => {
                 assert_eq!(ticker.e.as_deref(), Some("24hrTicker"));
                 assert_eq!(ticker.s, "BTCUSDT");
-                assert_eq!(ticker.c, "115831.96000000");
-                assert_eq!(ticker.b, "115831.96000000");
-                assert_eq!(ticker.a, "115831.97000000");
+                assert_eq!(ticker.c.as_deref(), Some("115831.96000000"));
+                assert_eq!(ticker.b.as_deref(), Some("115831.96000000"));
+                assert_eq!(ticker.a.as_deref(), Some("115831.97000000"));
                 assert_eq!(ticker.event_time, Some(1757888604019));
             }
             _ => panic!("Expected DirectTicker variant"),
@@ -133,9 +133,9 @@ mod tests {
             BinanceStreamMessage::DirectTicker(ticker) => {
                 assert_eq!(ticker.e.as_deref(), Some("24hrTicker"));
                 assert_eq!(ticker.s, "ETHUSDT");
-                assert_eq!(ticker.c, "4617.43000000");
-                assert_eq!(ticker.b, "4617.42000000");
-                assert_eq!(ticker.a, "4617.43000000");
+                assert_eq!(ticker.c.as_deref(), Some("4617.43000000"));
+                assert_eq!(ticker.b.as_deref(), Some("4617.42000000"));
+                assert_eq!(ticker.a.as_deref(), Some("4617.43000000"));
                 assert_eq!(ticker.event_time, Some(1757888604019));
             }
             _ => panic!("Expected DirectTicker variant"),
@@ -154,7 +154,7 @@ mod tests {
             BinanceStreamMessage::StreamTicker { stream, data } => {
                 assert_eq!(stream, "btcusdt@ticker");
                 assert_eq!(data.s, "BTCUSDT");
-                assert_eq!(data.c, "50000.00");
+                assert_eq!(data.c.as_deref(), Some("50000.00"));
                 assert_eq!(data.event_time, Some(1234567890));
             }
             _ => panic!("Expected StreamTicker variant"),
@@ -186,7 +186,7 @@ mod tests {
 
                 assert_eq!(ticker.s, "BTCUSDT");
 
-                assert_eq!(ticker.c, "115831.96000000");
+                assert_eq!(ticker.c.as_deref(), Some("115831.96000000"));
             }
 
             _ => panic!("Expected DirectTicker variant for BTC"),
@@ -198,7 +198,7 @@ mod tests {
 
                 assert_eq!(ticker.s, "ETHUSDT");
 
-                assert_eq!(ticker.c, "4617.43000000");
+                assert_eq!(ticker.c.as_deref(), Some("4617.43000000"));
             }
 
             _ => panic!("Expected DirectTicker variant for ETH"),
