@@ -192,9 +192,27 @@ impl CandleInterval {
         match self {
             Self::Minutes(v) => v.to_string(),
             Self::Hours(v) => (v * 60).to_string(),
-            Self::Days(v) => (v * 1_440).to_string(),
-            Self::Weeks(v) => (v * 10_080).to_string(),
-            Self::Months(v) => (v * 43_200).to_string(),
+            Self::Days(v) => {
+                if *v == 1 {
+                    "D".to_string()
+                } else {
+                    (v * 1_440).to_string()
+                }
+            }
+            Self::Weeks(v) => {
+                if *v == 1 {
+                    "W".to_string()
+                } else {
+                    (v * 10_080).to_string()
+                }
+            }
+            Self::Months(v) => {
+                if *v == 1 {
+                    "M".to_string()
+                } else {
+                    (v * 43_200).to_string()
+                }
+            }
         }
     }
 }

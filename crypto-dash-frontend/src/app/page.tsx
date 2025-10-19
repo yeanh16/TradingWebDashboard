@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { TickerTable } from '@/components/TickerTable'
 import { ExchangeSelector } from '@/components/ExchangeSelector'
 import { TickerSelector } from '@/components/TickerSelector'
+import { MarketCharts } from '@/components/MarketCharts'
 import { LatencyBadge } from '@/components/LatencyBadge'
 import { useWebSocket } from '@/lib/useWebSocket'
 import { apiClient } from '@/lib/api'
@@ -315,7 +316,14 @@ export default function HomePage() {
             allowedQuotes={allowedQuotes}
           />
         </div>
-        <div className="lg:col-span-9">
+        <div className="lg:col-span-9 space-y-6">
+          <MarketCharts
+            selectedTickers={selectedTickers}
+            tickers={tickers}
+            selectedExchanges={selectedExchanges}
+            marketType={selectedMarketType}
+            quoteSymbol={selectedQuoteSymbol}
+          />
           <TickerTable 
             selectedExchanges={selectedExchanges} 
             selectedTickers={selectedTickers}
@@ -329,5 +337,3 @@ export default function HomePage() {
     </div>
   )
 }
-
-

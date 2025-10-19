@@ -100,3 +100,22 @@ export interface SelectedTicker {
   min_qty?: number
   step_size?: number
 }
+
+export interface Candle {
+  timestamp: string
+  open: string | number
+  high: string | number
+  low: string | number
+  close: string | number
+  volume: string | number
+}
+
+export interface CandlesResponse {
+  exchange: string
+  symbol: string
+  market_type: MarketType
+  interval: string
+  limit: number
+  candles: Candle[]
+  cached: boolean
+}
