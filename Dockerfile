@@ -33,7 +33,7 @@ RUN python -m venv /venv \
     && /venv/bin/pip install -r crypto-dash-ai-backend/requirements.txt
 
 # ==== Final runtime stage ====
-FROM debian:bullseye-slim
+FROM python:3.11-slim
 
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
@@ -48,3 +48,4 @@ WORKDIR /srv/crypto-dash-ai-backend
 EXPOSE 8080 8000
 
 CMD ["/bin/sh", "-c", "/usr/local/bin/backend & exec /venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+
