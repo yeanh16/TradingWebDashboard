@@ -1,0 +1,6 @@
+fastapi
+httpx
+numpy
+pandas
+pydantic-settings
+uvicorn[standard]

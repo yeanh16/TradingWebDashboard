@@ -1,19 +1,20 @@
 // API client utilities
 
-import type { CandlesResponse, MarketType } from './types'
+import type { AiInsightsResponse, CandlesResponse, MarketType } from './types'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+const AI_API_BASE_URL = process.env.NEXT_PUBLIC_AI_API_URL || 'http://localhost:8000'
 
 export class ApiClient {
-  private baseUrl: string
+  protected baseUrl: string
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl
   }
 
-  private async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  protected async request<T>(endpoint: string, options?: RequestInit): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`
-    
+
     const response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
@@ -72,4 +73,21 @@ export class ApiClient {
   }
 }
 
+export class AiClient extends ApiClient {
+  async getInsights(params: { symbols: string[]; interval: string; limit?: number }): Promise<AiInsightsResponse> {
+    const searchParams = new URLSearchParams({
+      symbols: params.symbols.join(','),
+      interval: params.interval,
+    })
+
+    if (typeof params.limit === 'number') {
+      searchParams.set('limit', params.limit.toString())
+    }
+
+    const query = searchParams.toString()
+    return this.request(`/insights?${query}`)
+  }
+}
+
 export const apiClient = new ApiClient()
+export const aiClient = new AiClient(AI_API_BASE_URL)

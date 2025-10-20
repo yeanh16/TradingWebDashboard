@@ -1,61 +1,50 @@
-# Use the official Rust image as the base
-FROM rust:1.70-slim AS builder
+# ==== Builder stage for Rust backend ====
+FROM rust:1.70-slim AS backend-builder
 
-# Install required dependencies for building (OpenSSL, pkg-config, Node.js)
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    ca-certificates \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y pkg-config libssl-dev ca-certificates curl && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set the working directory
 WORKDIR /app
-
-# Copy the entire workspace
 COPY . .
 
-# Set environment variable for frontend build
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-
-# Build the frontend
-WORKDIR /app/crypto-dash-frontend
-RUN npm install
-RUN npm run build
-
-# Change to the backend directory
 WORKDIR /app/crypto-dash-backend
-
-# Build the application in release mode (specify the binary)
 RUN cargo build --release --bin api
 
-# Use a smaller runtime image
+# ==== Builder stage for frontend ====
+FROM node:18-bullseye-slim AS frontend-builder
+
+WORKDIR /app
+COPY . .
+
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_AI_API_URL
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_AI_API_URL=${NEXT_PUBLIC_AI_API_URL}
+
+WORKDIR /app/crypto-dash-frontend
+RUN npm install && npm run build
+
+# ==== Builder stage for Python AI service ====
+FROM python:3.11-slim AS ai-builder
+
+WORKDIR /app
+COPY ./crypto-dash-ai-backend ./crypto-dash-ai-backend
+RUN python -m venv /venv \
+    && /venv/bin/pip install --upgrade pip \
+    && /venv/bin/pip install -r crypto-dash-ai-backend/requirements.txt
+
+# ==== Final runtime stage ====
 FROM debian:bullseye-slim
 
-# Install runtime dependencies (if needed, e.g., for SSL)
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-# Copy the built binary from the builder stage
-COPY --from=builder /app/crypto-dash-backend/target/release/api /usr/local/bin/app
+COPY --from=backend-builder /app/crypto-dash-backend/target/release/api /usr/local/bin/backend
+COPY --from=frontend-builder /app/crypto-dash-frontend/out /usr/local/bin/static
+COPY --from=ai-builder /venv /venv
+COPY --from=ai-builder /app/crypto-dash-ai-backend /srv/crypto-dash-ai-backend
 
-# Copy the built frontend
-COPY --from=builder /app/crypto-dash-frontend/out /usr/local/bin/static
+ENV PATH="/venv/bin:${PATH}"
+WORKDIR /srv/crypto-dash-ai-backend
 
-# Expose the port your app runs on (e.g., 8080)
-EXPOSE 8080
+EXPOSE 8080 8000
 
-# Run the application
-CMD ["./usr/local/bin/app"]
-
-# To build and run the Docker container:
-# docker build \
-#  --build-arg NEXT_PUBLIC_API_URL=https://tradingwebdashboard-production.up.railway.app \
-#  -t trading-dashboard .
-
-# docker run -p 8080:8080 trading-dashboard
+CMD ["/bin/sh", "-c", "/usr/local/bin/backend & python -m fastapi dev main.py --host 0.0.0.0 --port 8000"]

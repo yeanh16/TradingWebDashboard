@@ -119,3 +119,19 @@ export interface CandlesResponse {
   candles: Candle[]
   cached: boolean
 }
+
+export interface AiSymbolInsight {
+  requested: string
+  resolved_exchange: string
+  symbol: string
+  summary: string
+  indicators: Record<string, number>
+}
+
+export interface AiInsightsResponse {
+  interval: string
+  insights: AiSymbolInsight[]
+  overview: string
+}
+
+

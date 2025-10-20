@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { CandlestickChart } from '@/components/CandlestickChart'
 import type { MarketType, SelectedTicker, Ticker } from '@/lib/types'
 
@@ -10,14 +10,15 @@ interface MarketChartsProps {
   selectedExchanges: string[]
   marketType: MarketType
   quoteSymbol: string
+  interval: string
+  onIntervalChange: (interval: string) => void
 }
 
 const INTERVAL_OPTIONS = ['1m', '5m', '15m', '1h', '4h', '1d']
 
 const buildTickerKey = (ticker: SelectedTicker) => `${ticker.exchange}_${ticker.market_type}_${ticker.base}${ticker.quote}`
 
-export function MarketCharts({ selectedTickers, tickers, selectedExchanges, marketType, quoteSymbol }: MarketChartsProps) {
-  const [interval, setInterval] = useState<string>('1m')
+export function MarketCharts({ selectedTickers, tickers, selectedExchanges, marketType, quoteSymbol, interval, onIntervalChange }: MarketChartsProps) {
 
   const visibleTickers = useMemo(() => {
     return selectedTickers.filter((ticker) =>
@@ -45,7 +46,7 @@ export function MarketCharts({ selectedTickers, tickers, selectedExchanges, mark
             {INTERVAL_OPTIONS.map((option) => (
               <button
                 key={option}
-                onClick={() => setInterval(option)}
+                onClick={() => onIntervalChange(option)}
                 className={`px-2 py-1 rounded-sm font-medium transition-colors ${interval === option ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}
               >
                 {option.toUpperCase()}

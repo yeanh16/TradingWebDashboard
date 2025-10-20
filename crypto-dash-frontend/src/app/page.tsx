@@ -7,7 +7,7 @@ import { TickerSelector } from '@/components/TickerSelector'
 import { MarketCharts } from '@/components/MarketCharts'
 import { LatencyBadge } from '@/components/LatencyBadge'
 import { useWebSocket } from '@/lib/useWebSocket'
-import { apiClient } from '@/lib/api'
+import { apiClient, aiClient } from '@/lib/api'
 import { Channel, SelectedTicker, SymbolInfo, MarketType, SymbolsPayload, AllowedQuotes } from '@/lib/types'
 
 interface Exchange {
@@ -33,27 +33,49 @@ export default function HomePage() {
   const [allowedQuotes, setAllowedQuotes] = useState<AllowedQuotes>({ spot: [], perpetual: [] })
   const [hasInitializedDefaults, setHasInitializedDefaults] = useState(false)
   const [aiSummary, setAiSummary] = useState('Click summarise to generate insights about your selected markets.')
+  const [chartInterval, setChartInterval] = useState<string>('1m')
   const [symbolMetadata, setSymbolMetadata] = useState<Record<string, Record<string, SymbolInfo>>>(() => ({}))
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
   
-  const handleSummarize = useCallback(() => {
-    const focusedTickers = selectedTickers
+  const handleSummarize = useCallback(async () => {
+    const focusedSelections = selectedTickers
       .filter((ticker) =>
         selectedExchanges.includes(ticker.exchange) &&
         ticker.market_type === selectedMarketType &&
         ticker.quote === selectedQuoteSymbol
       )
-      .map((ticker) => `${ticker.exchange.toUpperCase()}:${ticker.symbol}`)
 
-    if (focusedTickers.length === 0) {
+    if (focusedSelections.length === 0) {
       setAiSummary('AI preview: select a market to generate a summary.')
       return
     }
 
-    const summary = `AI preview: monitoring ${focusedTickers.join(', ')} (${selectedMarketType.toUpperCase()} / ${selectedQuoteSymbol}). Detailed insights coming soon.`
-    setAiSummary(summary)
-  }, [selectedTickers, selectedExchanges, selectedMarketType, selectedQuoteSymbol])
+    const groupedSymbols = focusedSelections.reduce<Record<string, string>>((acc, ticker) => {
+      const key = ticker.base.toUpperCase()
+      if (!acc[key]) {
+        acc[key] = `${ticker.exchange}:${ticker.base}${ticker.quote}`
+      }
+      return acc
+    }, {})
+
+    const displayList = Object.keys(groupedSymbols)
+    const requestSymbols = Object.values(groupedSymbols)
+
+    setAiSummary('Generating AI insight...')
+
+    try {
+      const response = await aiClient.getInsights({
+        symbols: requestSymbols,
+        interval: chartInterval,
+      })
+      const summary = response.overview || `AI preview: monitoring ${displayList.join(', ')} (${selectedMarketType.toUpperCase()} / ${selectedQuoteSymbol}). Detailed insights coming soon.`
+      setAiSummary(summary)
+    } catch (error) {
+      console.error('Failed to fetch AI insight', error)
+      setAiSummary('AI service unavailable. Please try again later.')
+    }
+  }, [selectedTickers, selectedExchanges, selectedMarketType, selectedQuoteSymbol, chartInterval])
   
   const { state: wsState, tickers, subscribe, unsubscribe, clearError } = useWebSocket()
 
@@ -355,6 +377,8 @@ export default function HomePage() {
             selectedExchanges={selectedExchanges}
             marketType={selectedMarketType}
             quoteSymbol={selectedQuoteSymbol}
+            interval={chartInterval}
+            onIntervalChange={setChartInterval}
           />
           <TickerTable 
             selectedExchanges={selectedExchanges} 
