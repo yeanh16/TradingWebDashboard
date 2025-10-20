@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { TickerTable } from '@/components/TickerTable'
 import { ExchangeSelector } from '@/components/ExchangeSelector'
 import { TickerSelector } from '@/components/TickerSelector'
@@ -32,9 +32,28 @@ export default function HomePage() {
   const [selectedQuoteSymbol, setSelectedQuoteSymbol] = useState<QuoteSymbol>('USDT')
   const [allowedQuotes, setAllowedQuotes] = useState<AllowedQuotes>({ spot: [], perpetual: [] })
   const [hasInitializedDefaults, setHasInitializedDefaults] = useState(false)
+  const [aiSummary, setAiSummary] = useState('Click summarise to generate insights about your selected markets.')
   const [symbolMetadata, setSymbolMetadata] = useState<Record<string, Record<string, SymbolInfo>>>(() => ({}))
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [loading, setLoading] = useState(true)
+  
+  const handleSummarize = useCallback(() => {
+    const focusedTickers = selectedTickers
+      .filter((ticker) =>
+        selectedExchanges.includes(ticker.exchange) &&
+        ticker.market_type === selectedMarketType &&
+        ticker.quote === selectedQuoteSymbol
+      )
+      .map((ticker) => `${ticker.exchange.toUpperCase()}:${ticker.symbol}`)
+
+    if (focusedTickers.length === 0) {
+      setAiSummary('AI preview: select a market to generate a summary.')
+      return
+    }
+
+    const summary = `AI preview: monitoring ${focusedTickers.join(', ')} (${selectedMarketType.toUpperCase()} / ${selectedQuoteSymbol}). Detailed insights coming soon.`
+    setAiSummary(summary)
+  }, [selectedTickers, selectedExchanges, selectedMarketType, selectedQuoteSymbol])
   
   const { state: wsState, tickers, subscribe, unsubscribe, clearError } = useWebSocket()
 
@@ -299,6 +318,19 @@ export default function HomePage() {
           </div>
         </div>
       </div>
+
+      <section className="rounded-lg border bg-card p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold">AI Insight</h3>
+          <button
+            onClick={() => handleSummarize()}
+            className="inline-flex items-center justify-center rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            Summarise
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground">{aiSummary}</p>
+      </section>
 
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="lg:col-span-3 space-y-6">
