@@ -42,9 +42,9 @@ COPY --from=frontend-builder /app/crypto-dash-frontend/out /usr/local/bin/static
 COPY --from=ai-builder /venv /venv
 COPY --from=ai-builder /app/crypto-dash-ai-backend /srv/crypto-dash-ai-backend
 
-ENV PATH="/venv/bin:${PATH}"
+ENV PATH=/venv/bin:$PATH
 WORKDIR /srv/crypto-dash-ai-backend
 
 EXPOSE 8080 8000
 
-CMD ["/bin/sh", "-c", "/usr/local/bin/backend & python -m fastapi dev main.py --host 0.0.0.0 --port 8000"]
+CMD ["/bin/sh", "-c", "/usr/local/bin/backend & exec /venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]
