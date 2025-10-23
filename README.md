@@ -1,213 +1,237 @@
-Deployed using Railway and Docker: https://tradingwebdashboard-production.up.railway.app/
 # Crypto Trading Dashboard
 
-Monorepo for a real-time cryptocurrency market dashboard. A Rust backend ingests and normalizes exchange data and exposes REST + WebSocket APIs, while a Next.js frontend renders an interactive trading view.
+Live demo (Railway + Docker): https://tradingwebdashboard-production.up.railway.app/
+
+This monorepo powers a real-time cryptocurrency dashboard delivered through three Dockerised microservices:
+
+1. **Rust market data API** – ingests live exchange feeds, normalises candles/tickers, and exposes REST + WebSocket endpoints.
+2. **Python AI insights service** – consumes the market API, enriches symbol data with technical indicators and narrative summaries (planned using LLM AI API integration).
+3. **Next.js frontend** – renders the trading UI and orchestrates calls to both backend services from the browser.
+
+The services deploy independently (Railway, local Docker, or bare metal) while sharing a common domain model and environment conventions.
 
 ## Highlights
-- Axum-based Rust API that streams normalized ticker updates and Binance order-book snapshots over WebSockets.
-- Exchange adapters for Binance and Bybit built on a shared trait with automatic reconnects and mock-data fallback.
-- Exchange catalog service that fetches symbol metadata from upstream REST APIs, caches the results, and exposes them via `/api/symbols`.
+- Axum-based Rust API that streams normalised ticker updates, historical candles, and symbol metadata with WebSocket + REST interfaces.
+- FastAPI microservice that derives insights (trend summaries, indicators) from market API candles and caches exchange metadata on demand.
+- Exchange adapters for Binance and Bybit built on a shared trait with automatic reconnects and deterministic mock-data fallback.
 - In-memory cache and publish/subscribe stream hub so multiple WebSocket clients can share upstream connections without duplication.
-- Next.js 14 frontend with exchange and ticker selectors, latency monitoring, and a live markets table with graceful offline fallback.
-- Batteries-included testing across cargo, Jest, and Playwright, plus a `run-tests.sh` helper to execute full suites locally.
+- Next.js 14 frontend with exchange/ticker selectors, latency monitoring, AI-powered insight panel, and graceful offline stubs.
+- Batteries-included testing across Cargo, Pytest, and Jest/Playwright, plus a `run-tests.sh` helper for full-suite execution.
 
 ## Architecture Overview
 ```
-+------------------------------+        +----------------------------------------------+        +-----------------------------+
-|      crypto-dash-frontend    |        |             crypto-dash-backend              |        |     External Exchanges      |
-|------------------------------|        |----------------------------------------------|        |-----------------------------|
-|  Next.js App Router (pages)  |        |  Axum API (REST + WebSocket gateway)         |        |  Binance WS / REST APIs     |
-|  Exchange/Ticker components  |        |  Stream Hub (pub/sub topics)                 |        |  Bybit WS / REST APIs       |
-|  useWebSocket hook           |<------>|  Memory Cache (latest tickers/order books)   |<-------+  Live feeds and metadata    |
-|  apiClient (REST helper)     |  WS    |  Exchange Catalog (symbol metadata service)  |        |                             |
-|  Zustand / React Query store |  REST  |  Exchange Adapters (Binance, Bybit)          |        |                             |
-|  Tailwind-powered UI         |<------>|      - shared WS client and mock generator   |        |                             |
-|------------------------------|        |----------------------------------------------|        |-----------------------------|
-            ^                                      ^                 ^
-            |                                      |                 |
-            +---------------------------+----------+-----------------+
-                                        |
-                                        v
-                         run-tests.sh / TESTING.md orchestration
+                                     +------------------------------+
+                                     |      crypto-dash-frontend    |
+                                     |------------------------------|
+                                     |  Next.js App (static export) |
+                                     |  REST client + WS hook       |
+                                     |  Zustand / React Query store |
+                                     +---------------+--------------+
+                                                     |
+                                                     | REST / WebSocket
+                                                     v
++------------------------------+          +----------+---------------------------+
+|    crypto-dash-ai-backend    |<---------|        crypto-dash-backend           |
+|------------------------------|  REST    |--------------------------------------|
+|  FastAPI insights service    |          |  Axum API (REST + WebSockets)        |
+|  Technical indicator engine  |          |  Stream Hub (pub/sub topics)         |
+|  Exchange metadata cache     |          |  Memory cache (tickers/order books)  |
+|------------------------------|          |  Exchange adapters (Binance, Bybit)  |
+          ^                                 |  Catalog service (/api/symbols)     |
+          |                                 +-----------------+------------------+
+          |                                                   |
+          |                                           WebSocket / REST
+          |                                                   v
+          |                                     +-------------------------------+
+          |                                     |     External Exchanges        |
+          |                                     |-------------------------------|
+          +-------------------------------------| Binance & Bybit WS/REST APIs  |
+                                                +-------------------------------+
 ```
-The diagram highlights how the Next.js frontend consumes REST and WebSocket data exposed by the Axum API. Exchange adapters maintain upstream sessions (or fall back to deterministic mock data), publish normalized events into the stream hub, and persist snapshots in the cache, while the catalog fetches and caches symbol metadata. Frontend stores feed React components via Zustand and React Query.js frontend consumes REST and WebSocket data exposed by the Axum API. Adapters (Binance, Bybit) maintain upstream exchange connections or generate mock data, publish normalized events into the stream hub, and persist snapshots in the cache. The exchange catalog fetches and caches symbol metadata. Frontend data flows through Zustand/React Query into UI components.js UI talks to the Axum API over REST and WebSockets. Exchange adapters maintain upstream sessions (or fall back to deterministic mock data) and publish normalized events into the stream hub and cache, while the catalog fetches symbol metadata from exchange REST APIs.
+The frontend calls both backend services directly from the browser. The Rust API maintains upstream exchange sessions (or mock streams), caches snapshots, and exposes market data to clients and to the AI service. The Python service requests candles from the market API, computes indicators/summaries, and returns insight payloads rendered beside the market data UI.
 
 ## Repository Layout
 ```
 TradingWebDashboard/
-  crypto-dash-backend/          # Rust workspace
-    crates/
-      api/                      # HTTP + WebSocket service
-      core/                     # Shared models, config, normalization helpers
-      stream-hub/               # Broadcast hub for market data topics
-      cache/                    # In-memory cache facade
-      exchanges/
-        common/                 # Exchange adapter trait, WS client, mock generator
-        binance/                # Binance integration
-        bybit/                  # Bybit integration
+  crypto-dash-backend/          # Rust workspace (market API + adapters)
+    crates/api/                 # HTTP + WebSocket service
+    crates/core/                # Shared models, config, normalisers
+    crates/cache/               # In-memory cache facade
+    crates/stream-hub/          # Broadcast hub for market data topics
+    crates/exchanges/           # Common trait + Binance + Bybit adapters
     integration-tests/          # Cross-crate integration suite
-    tests/                      # High-level backend tests
-    scripts/                    # Developer scripts (dev.sh, etc.)
+  crypto-dash-ai-backend/       # FastAPI insights microservice
+    app/                        # API routes, services, settings
+    tests/                      # Pytest suites
   crypto-dash-frontend/         # Next.js 14 application
     src/app/                    # App Router entrypoint
     src/components/             # Dashboard UI building blocks
     src/lib/                    # API client + WebSocket hook
     tests/                      # Jest + Playwright suites
-  run-tests.sh                  # Helper to run backend and frontend tests
+  run-tests.sh                  # Helper to run backend/frontend tests
   TESTING.md                    # Extended testing guide
 ```
 
 ## Getting Started
 
-### Backend (Rust)
+You can run each microservice locally via its native toolchain or build Docker images for parity with production.
+
+### Rust Market API (`crypto-dash-backend`)
 1. Install Rust (https://rustup.rs) and ensure `cargo` is on your `PATH`.
-2. Copy the example environment file and adjust as needed:
-   ```
+2. Copy the environment template:
+   ```bash
    cd crypto-dash-backend
    cp .env.example .env
    ```
-3. Run the API service:
-   ```
+3. Start the API:
+   ```bash
    cargo run -p api
    ```
-   The server listens on `http://localhost:8080` by default and serves both REST endpoints and the `/ws` WebSocket.
+   The server listens on `http://localhost:8080` and serves both REST endpoints and the `/ws` WebSocket.
 
 Useful commands:
 ```
-cargo check          # fast validation
-cargo test           # workspace tests
+cargo check
+cargo test
 RUST_LOG=debug cargo run -p api
 ```
 
-### Frontend (Next.js)
-1. Install Node.js 18+.
-2. Copy the example env file:
+Docker:
+```
+docker build -t crypto-dash-backend -f crypto-dash-backend/Dockerfile crypto-dash-backend
+docker run --rm -p 8080:8080 --name crypto-dash-backend crypto-dash-backend
+```
+
+### Python AI Insights (`crypto-dash-ai-backend`)
+1. Install Python 3.11 and a virtual environment manager (or use the provided Dockerfile).
+2. Copy environment variables:
+   ```bash
+   cd crypto-dash-ai-backend
+   cp .env.example .env
    ```
+3. Install dependencies and run the service:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate    # Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   uvicorn app.main:app --host 0.0.0.0 --port 8000
+   ```
+   Set `AI_MARKET_API_BASE_URL` (default `http://localhost:8080`) so the insights service can reach the market API.
+
+Docker:
+```
+docker build -t crypto-dash-ai -f crypto-dash-ai-backend/Dockerfile crypto-dash-ai-backend
+docker run --rm -p 8000:8000 \
+  -e AI_MARKET_API_BASE_URL=http://host.docker.internal:8080 \
+  --name crypto-dash-ai crypto-dash-ai
+```
+
+### Frontend (`crypto-dash-frontend`)
+1. Install Node.js 18+.
+2. Copy environment variables:
+   ```bash
    cd crypto-dash-frontend
    cp .env.local.example .env.local
    ```
-3. Install dependencies and start the dev server:
-   ```
+3. Install dependencies and start dev mode:
+   ```bash
    npm install
-   npm run dev
+  npm run dev
    ```
-   The UI is served from `http://localhost:3000` and expects the backend at `http://localhost:8080` unless `NEXT_PUBLIC_API_URL` is overridden.
+   The UI is served from `http://localhost:3000`. Override `NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_AI_API_URL` as needed.
 
-Other scripts:
+Docker (static export served by Nginx):
 ```
-npm run build        # production build
-npm run lint         # ESLint
-npm test             # Jest unit + integration tests
-npm run test:e2e     # Playwright end-to-end tests
+docker build -t crypto-dash-frontend -f crypto-dash-frontend/Dockerfile crypto-dash-frontend
+docker run --rm -p 3000:80 --name crypto-dash-frontend crypto-dash-frontend
 ```
 
 ## Environment Configuration
 
-Backend `.env` options (see `crypto-dash-backend/.env.example`):
-- `BIND_ADDR`: host and port for the Axum server (default `0.0.0.0:8080`).
-- `EXCHANGES`: comma-separated list of adapters to start (`binance,bybit`).
-- `RUST_LOG`: tracing filter (default `info` with crate overrides).
-- `ENABLE_REDIS` / `REDIS_URL`: reserved for the upcoming Redis cache integration.
-- `BOOK_DEPTH_DEFAULT`: default order-book depth when requesting snapshots (Binance adapter honours this setting).
+**Market API (`crypto-dash-backend/.env.example`):**
+- `BIND_ADDR` – host:port for Axum server (default `0.0.0.0:8080`).
+- `EXCHANGES` – comma-separated adapters to start (`binance,bybit`).
+- `RUST_LOG` – tracing filter (`info`, `debug`, etc.).
+- `BOOK_DEPTH_DEFAULT`, `ORDER_BOOK_LIMITS_*` – optional snapshot tuning.
+- `ENABLE_REDIS`, `REDIS_URL` – reserved for future distributed cache.
 
-Frontend `.env.local`:
-- `NEXT_PUBLIC_API_URL`: base URL for REST + WebSocket endpoints (defaults to `http://localhost:8080`).
+**AI Insights (`crypto-dash-ai-backend/.env.example`):**
+- `AI_MARKET_API_BASE_URL` – URL of the market API service the AI should query.
+- `AI_CORS_ORIGINS` – comma-delimited origins allowed for browser requests.
+- `AI_DEFAULT_LIMIT`, `AI_HTTP_TIMEOUT_SECONDS` – request tuning knobs.
+
+**Frontend (`crypto-dash-frontend/.env.local.example`):**
+- `NEXT_PUBLIC_API_URL` – public market API base URL (REST + WebSocket).
+- `NEXT_PUBLIC_AI_API_URL` – public AI insights base URL.
+
+When deploying on Railway or another platform, configure each service independently, e.g. by setting the public URLs for browser-bound env vars and internal `.railway.internal` hosts for service-to-service calls.
 
 ## API Surface
 
-REST endpoints (served from `http://localhost:8080`):
-- `GET /health` - liveness status.
-- `GET /ready` - readiness status including dependency health.
-- `GET /api/exchanges` - active exchanges with connection status.
-- `GET /api/symbols` - symbol metadata grouped by exchange. Use `?exchange=binance` to filter.
-- `POST /api/symbols/refresh` - refresh metadata for all exchanges or a specific one via `?exchange=`.
+### Market API (Rust/port 8080)
+- `GET /health` – liveness probe.
+- `GET /ready` – readiness including exchange status.
+- `GET /api/exchanges` – active exchanges with connection diagnostics.
+- `GET /api/symbols` – symbol metadata grouped by exchange (`?exchange=` to filter).
+- `POST /api/symbols/refresh` – refresh metadata cache (optionally per exchange).
+- `GET /api/candles` – OHLCV candles (`exchange`, `symbol`, `interval`, `limit` query params).
+- WebSocket `ws://<host>/ws` – subscribe to `ticker`, `order_book_snapshot`, `order_book_delta`, etc. using `{ "op": "subscribe", "channels": [...] }` payloads.
 
-WebSocket endpoint: `ws://localhost:8080/ws`
+The API caches the latest values so late subscribers receive immediate updates without new upstream connections. When an exchange is unavailable, adapters fall back to deterministic mock streams for development parity.
 
-Subscribe to live channels by sending:
-```json
-{
-  "op": "subscribe",
-  "channels": [
-    {
-      "channel_type": "ticker",
-      "exchange": "binance",
-      "symbol": {"base": "BTC", "quote": "USDT"}
-    }
-  ]
-}
-```
+### AI Insights API (FastAPI/port 8000)
+- `OPTIONS /insights` – CORS preflight helper for browsers.
+- `GET /insights` – derive technical indicators and narrative summaries for symbols provided via `symbols`, `interval`, and optional `limit` query params.
 
-Server messages follow the `StreamMessage` enum:
-```json
-{
-  "type": "ticker",
-  "payload": {
-    "timestamp": "2024-01-01T00:00:00Z",
-    "exchange": "binance",
-    "symbol": {"base": "BTC", "quote": "USDT"},
-    "bid": 43250.50,
-    "ask": 43251.75,
-    "last": 43251.00,
-    "bid_size": 1.0,
-    "ask_size": 1.0
-  }
-}
-```
-Additional message types include `order_book_snapshot`, `order_book_delta`, `info`, and `error`. Clients can also send `{"op":"ping"}` and receive latency-aware `info` responses.
-
-The backend caches the latest values so new subscribers receive updates without having to trigger new upstream connections. If an upstream exchange is unreachable, adapters fall back to deterministic mock data so local development can continue.
+The insights service uses the market API for candles and symbol metadata, then returns an `InsightsResponse` containing per-symbol indicators and a combined textual overview.
 
 ## Frontend Features
 
-- Uses a shared `useWebSocket` hook for automatic reconnects, ping/pong latency tracking, and selective subscribe/unsubscribe per ticker.
-- Displays exchange metadata and symbols fetched from the REST API with graceful degradation if the API is offline (defaults to a curated list).
-- `ExchangeSelector`, `TickerSelector`, `TickerTable`, and `LatencyBadge` components compose the dashboard. The table highlights price movements and shows mock values whenever the WebSocket is disconnected.
-- Styling through Tailwind CSS with responsive layouts; icons via `lucide-react`.
+- `useWebSocket` hook manages subscriptions, reconnects, and ping/pong latency metrics for the market stream.
+- REST client fetches exchange metadata, tickers, and AI insight payloads in parallel; React Query provides caching and automatic retries.
+- Components (`ExchangeSelector`, `TickerSelector`, `TickerTable`, `InsightsPanel`, `LatencyBadge`, etc.) render the market view with AI summaries alongside recent price action.
+- Tailwind CSS + `lucide-react` power the responsive UI; the app gracefully degrades to mock data when backends are unavailable.
 
 ## Testing
 
-Backend:
+**Market API:**
 ```
 cd crypto-dash-backend
-cargo test            # unit + integration tests
+cargo test
 ```
 
-Frontend:
+**AI Insights:**
+```
+cd crypto-dash-ai-backend
+pytest
+```
+
+**Frontend:**
 ```
 cd crypto-dash-frontend
-npm test              # Jest unit + integration
-npm run test:e2e      # Playwright (requires backend + frontend running)
+npm test
+npm run test:e2e   # requires the APIs running
 ```
 
-All-in-one helper:
+**Full-suite helper:**
 ```
-./run-tests.sh --help
-./run-tests.sh                # backend + frontend unit tests
-./run-tests.sh --all          # include E2E, performance placeholders, reports
+./run-tests.sh
+./run-tests.sh --all   # include e2e + reports
 ```
 
-See `TESTING.md` for deep-dives, coverage tips, and debugging commands.
+See `TESTING.md` for deeper guidance, coverage examples, and debugging tips.
 
 ## Additional Documentation
-
-- `crypto-dash-backend/README.md` - backend-focused details.
-- `crypto-dash-frontend/README.md` - frontend-specific notes.
-- `TESTING.md` - comprehensive testing strategy.
+- `crypto-dash-backend/README.md` – backend-specific design notes.
+- `crypto-dash-ai-backend/README.md` – AI service details (coming soon).
+- `crypto-dash-frontend/README.md` – frontend-specific notes.
+- `TESTING.md` – comprehensive testing strategy across services.
 
 ## Roadmap
+- Expose cached order-book snapshots and deltas in the frontend UI.
+- Expand AI summarisation (multiple lookback windows, anomaly detection).
+- Add additional exchange adapters (OKX, Coinbase, Kraken).
+- Introduce optional Redis backbone for shared cache/state across replicas.
+- Enhance dashboards with depth charts, comparative views, and alerting.
 
-Current focus areas include:
-- Exposing cached order-book snapshots and deltas to the frontend UI.
-- Surfacing additional exchanges (OKX, Coinbase) through the adapter interface.
-- Optional Redis backing store for distributed deployments.
-- Enhanced frontend visualizations (depth charts, comparative views).
-
-Contributions and feedback are welcome; open an issue or PR with ideas or improvements.
-
-
-
-
-
-
-
+Contributions and feedback are welcome. Feel free to open issues, discussions, or pull requests with ideas or improvements.
