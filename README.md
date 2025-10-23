@@ -24,31 +24,30 @@ The services deploy independently (Railway, local Docker, or bare metal) while s
                                      |      crypto-dash-frontend    |
                                      |------------------------------|
                                      |  Next.js App (static export) |
-                                     |  REST client + WS hook       |
-                                     |  Zustand / React Query store |
-                                     +---------------+--------------+
-                                                     |
-                                                     | REST / WebSocket
-                                                     v
-+------------------------------+          +----------+---------------------------+
-|    crypto-dash-ai-backend    |<---------|        crypto-dash-backend           |
-|------------------------------|  REST    |--------------------------------------|
-|  FastAPI insights service    |          |  Axum API (REST + WebSockets)        |
-|  Technical indicator engine  |          |  Stream Hub (pub/sub topics)         |
-|  Exchange metadata cache     |          |  Memory cache (tickers/order books)  |
-|------------------------------|          |  Exchange adapters (Binance, Bybit)  |
-          ^                                 |  Catalog service (/api/symbols)     |
-          |                                 +-----------------+------------------+
-          |                                                   |
-          |                                           WebSocket / REST
-          |                                                   v
-          |                                     +-------------------------------+
-          |                                     |     External Exchanges        |
-          |                                     |-------------------------------|
-          +-------------------------------------| Binance & Bybit WS/REST APIs  |
-                                                +-------------------------------+
+               __ __________________ |  REST client + WS hook       |
+               |                     |  Zustand / React Query store |
+               |                      +-------+-------------+--------+
+               | REST                                     |
+               |                                          | REST + WebSocket
+               v                                          v
++------------------------------+     +---------------------+--------------------+
+|    crypto-dash-ai-backend    |     |        crypto-dash-backend               |
+|------------------------------|     |------------------------------------------|
+|  FastAPI insights service    |     |  Axum API (REST + WebSockets)            |
+|  Technical indicator engine  |     |  Stream Hub (pub/sub topics)             |
+|  Exchange metadata cache     |     |  Memory cache (tickers/order books)      |
++---------------+--------------+     |  Exchange adapters (Binance, Bybit)      |
+                | REST (candles)     |  Catalog service (/api/symbols, candles) |
+                +-------------------->+--------------------+--------------------+
+                                                             |
+                                                             | WebSocket / REST
+                                                             v
+                                              +-------------------------------+
+                                              |     External Exchanges        |
+                                              |  Binance & Bybit WS/REST APIs |
+                                              +-------------------------------+
 ```
-The frontend calls both backend services directly from the browser. The Rust API maintains upstream exchange sessions (or mock streams), caches snapshots, and exposes market data to clients and to the AI service. The Python service requests candles from the market API, computes indicators/summaries, and returns insight payloads rendered beside the market data UI.
+The frontend calls both backend services directly from the browser. The Rust API maintains upstream exchange sessions (or mock streams), caches snapshots, and exposes market data to clients. The Python AI service exclusively queries the market API for candles/metadata, computes indicators and summaries, and returns insight payloads rendered alongside the market data UI—without contacting external exchanges itself.
 
 ## Repository Layout
 ```
