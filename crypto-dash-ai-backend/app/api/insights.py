@@ -12,7 +12,6 @@ settings = get_settings()
 
 
 @router.options("", include_in_schema=False)
-@router.options("/", include_in_schema=False)
 async def insights_options() -> JSONResponse:
     return JSONResponse(
         content={},
@@ -24,8 +23,7 @@ async def insights_options() -> JSONResponse:
     )
 
 
-@router.get("", response_model=InsightsResponse)
-@router.get("/", response_model=InsightsResponse, include_in_schema=False)
+@router.get("", response_model=InsightsResponse, include_in_schema=False)
 async def get_insights(
     symbols: str = Query(..., description="Comma-separated symbols, optionally prefixed with exchange (e.g. bybit:BTCUSDT)"),
     interval: str = Query(..., description="Candle interval such as 1m,5m,1h,1d"),
