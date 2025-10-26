@@ -59,24 +59,26 @@ The frontend calls both backend services directly from the browser. The Rust API
 
 ## Repository Layout
 ```
-TradingWebDashboard/
-  crypto-dash-backend/          # Rust workspace (market API + adapters)
-    crates/api/                 # HTTP + WebSocket service
-    crates/core/                # Shared models, config, normalisers
-    crates/cache/               # In-memory cache facade
-    crates/stream-hub/          # Broadcast hub for market data topics
-    crates/exchanges/           # Common trait + Binance + Bybit adapters
-    integration-tests/          # Cross-crate integration suite
-  crypto-dash-ai-backend/       # FastAPI insights microservice
-    app/                        # API routes, services, settings
-    tests/                      # Pytest suites
-  crypto-dash-frontend/         # Next.js 14 application
-    src/app/                    # App Router entrypoint
-    src/components/             # Dashboard UI building blocks
-    src/lib/                    # API client + WebSocket hook
-    tests/                      # Jest + Playwright suites
-  run-tests.sh                  # Helper to run backend/frontend tests
-  TESTING.md                    # Extended testing guide
+  crypto-dash-backend/            # Rust workspace (market API + exchange adapters)
+    crates/api/                   # Axum REST/WS service
+    crates/core/                  # Shared config, models, normalisers
+    crates/cache/                 # In-memory caching layer
+    crates/stream-hub/            # Pub/sub hub for market channels
+    crates/exchanges/             # Common client + Binance/Bybit adapters
+    integration-tests/            # Cross-service integration checks
+  crypto-dash-ai-backend/         # FastAPI insights service
+    app/api/                      # Router definitions (e.g. /insights)
+    app/models/                   # Pydantic schemas
+    app/services/                 # Market analytics + Gemini clients
+    app/settings.py               # Pydantic settings with env support
+  crypto-dash-frontend/           # Next.js 14 dashboard
+    src/app/                      # App Router pages
+    src/components/               # UI building blocks (TickerTable, etc.)
+    src/lib/                      # REST + WebSocket clients
+    tests/                        # Jest + Playwright suites
+  run-tests.sh                    # Helper to execute all test suites
+  TESTING.md                      # Test strategy and reference
+  README.md                       # This document
 ```
 
 ## Getting Started
