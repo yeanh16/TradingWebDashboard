@@ -36,9 +36,17 @@ The services deploy independently (Railway, local Docker, or bare metal) while s
 |  FastAPI insights service    |     |  Axum API (REST + WebSockets)            |
 |  Technical indicator engine  |     |  Stream Hub (pub/sub topics)             |
 |  Exchange metadata cache     |     |  Memory cache (tickers/order books)      |
-+---------------+--------------+     |  Exchange adapters (Binance, Bybit)      |
-                | REST (candles)     |  Catalog service (/api/symbols, candles) |
-                +-------------------->+--------------------+--------------------+
+|  Gemini narrative generator  |     |  Exchange adapters (Binance, Bybit)      |
++---------------+--------------+     |  Catalog service (/api/symbols, candles) |
+                | REST       Candles |                                          |
+                +------------------->+--------------------+---------------------+
+                |                                            |
+                | Market/News and technical summaries        |
+                v                                            |
+      +------------------------------+                       |
+      |    Google Gemini AI (LLM)    |                       |
+      |  Market narrative generation |                       |
+      +------------------------------+                       |
                                                              |
                                                              | WebSocket / REST
                                                              v
@@ -47,7 +55,7 @@ The services deploy independently (Railway, local Docker, or bare metal) while s
                                               |  Binance & Bybit WS/REST APIs |
                                               +-------------------------------+
 ```
-The frontend calls both backend services directly from the browser. The Rust API maintains upstream exchange sessions (or mock streams), caches snapshots, and exposes market data to clients. The Python AI service exclusively queries the market API for candles/metadata, computes indicators and summaries, and returns insight payloads rendered alongside the market data UI—without contacting external exchanges itself.
+The frontend calls both backend services directly from the browser. The Rust API maintains upstream exchange sessions (or mock streams), caches snapshots, and exposes market data to clients. The Python AI service queries the market API for candles/metadata, invokes Google’s Gemini API for narrative generation, and returns insight payloads rendered alongside the market data UI—without contacting external exchanges itself.
 
 ## Repository Layout
 ```
