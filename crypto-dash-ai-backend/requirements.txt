@@ -4,3 +4,4 @@ numpy
 pandas
 pydantic-settings
 uvicorn[standard]
+google-genai

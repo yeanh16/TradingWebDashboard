@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from ..models.schemas import Candle, SymbolInsight
 from ..settings import get_settings
 from .analysis import analyse_dataframe, candles_to_dataframe, summarise
+from .geminiai import generate_gemini_market_insight
 
 settings = get_settings()
 SymbolMetadata = Dict[str, Dict[str, Any]]
@@ -174,11 +175,12 @@ async def build_insight(
                 indicators,
                 price_precision=precision,
             )
+            gemini_insight = generate_gemini_market_insight(symbol, summary, interval, limit)
             return SymbolInsight(
                 requested=requested_token,
                 resolved_exchange=exchange,
                 symbol=symbol,
-                summary=summary,
+                summary=gemini_insight,
                 indicators={k: float(v) for k, v in indicators.items()},
                 price_precision=precision,
             )

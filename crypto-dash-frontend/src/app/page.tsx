@@ -351,7 +351,7 @@ export default function HomePage() {
             Summarise
           </button>
         </div>
-        <p className="text-sm text-muted-foreground">{aiSummary}</p>
+        <p className="text-sm text-muted-foreground whitespace-pre-line">{aiSummary}</p>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-12">
