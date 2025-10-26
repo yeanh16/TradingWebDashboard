@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { TrendingUp, TrendingDown, Wifi, WifiOff } from 'lucide-react'
 import { Ticker, SelectedTicker, MarketType } from '@/lib/types'
 
@@ -55,6 +55,8 @@ const MOCK_TICKERS: TickerData[] = [
 export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsConnected, activeMarketType, activeQuoteSymbol }: TickerTableProps) {
   const [loading, setLoading] = useState(true)
   const [priceChanges, setPriceChanges] = useState<Record<string, 'up' | 'down' | null>>({})
+  const previousPricesRef = useRef<Record<string, number>>({})
+  const priceChangeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Convert live ticker data to display format
   const displayTickers = useMemo(() => {
@@ -131,24 +133,52 @@ export function TickerTable({ selectedExchanges, selectedTickers, tickers, wsCon
 
   // Track price changes for visual feedback
   useEffect(() => {
-    const newChanges: Record<string, 'up' | 'down' | null> = {}
-    
+    const previousPrices = previousPricesRef.current
+    const updatedPrevious: Record<string, number> = {}
+    const newChanges: Record<string, 'up' | 'down'> = {}
+
     Object.entries(tickers).forEach(([key, ticker]) => {
-      const currentPrice = ticker.last
-      // In a real app, you'd compare with previous price
-      // For now, we'll randomly simulate price movements for demo
-      newChanges[key] = Math.random() > 0.5 ? 'up' : 'down'
+      const currentPrice = Number(ticker.last)
+      if (!Number.isFinite(currentPrice)) {
+        return
+      }
+
+      const previousPrice = previousPrices[key]
+      if (previousPrice !== undefined) {
+        if (currentPrice > previousPrice) {
+          newChanges[key] = 'up'
+        } else if (currentPrice < previousPrice) {
+          newChanges[key] = 'down'
+        }
+      }
+
+      updatedPrevious[key] = currentPrice
     })
-    
+
+    previousPricesRef.current = updatedPrevious
+
+    if (Object.keys(newChanges).length === 0) {
+      return
+    }
+
     setPriceChanges(newChanges)
-    
-    // Clear price change indicators after 2 seconds
-    const timeout = setTimeout(() => {
+    if (priceChangeTimeoutRef.current) {
+      clearTimeout(priceChangeTimeoutRef.current)
+    }
+    priceChangeTimeoutRef.current = setTimeout(() => {
       setPriceChanges({})
+      priceChangeTimeoutRef.current = null
     }, 2000)
-    
-    return () => clearTimeout(timeout)
   }, [tickers])
+
+  useEffect(() => {
+    return () => {
+      if (priceChangeTimeoutRef.current) {
+        clearTimeout(priceChangeTimeoutRef.current)
+        priceChangeTimeoutRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     // Simulate initial loading
