@@ -319,7 +319,11 @@ export function TickerSelector({
             type="text"
             placeholder="Search for coins (e.g., BTC, ETH, Bitcoin)..."
             value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
+            onChange={(e) => {
+              const value = e.target.value
+              setSearchTerm(value)
+              setShowDropdown(value.trim().length > 0)
+            }}
             onFocus={() => setShowDropdown(true)}
             onBlur={() => {
               setTimeout(() => setShowDropdown(false), 200)
