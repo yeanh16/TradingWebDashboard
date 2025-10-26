@@ -5,7 +5,7 @@ Live demo (Railway + Docker): https://tradingwebdashboard-production.up.railway.
 This monorepo powers a real-time cryptocurrency dashboard delivered through three Dockerised microservices:
 
 1. **Rust market data API** – ingests live exchange feeds, normalises candles/tickers, and exposes REST + WebSocket endpoints.
-2. **Python AI insights service** – consumes the market API, enriches symbol data with technical indicators and narrative summaries (planned using LLM AI API integration).
+2. **Python AI insights service** – consumes the market API, enriches symbol data with technical indicators and narrative summaries using Google Gemini LLM AI API integration.
 3. **Next.js frontend** – renders the trading UI and orchestrates calls to both backend services from the browser.
 
 The services deploy independently (Railway, local Docker, or bare metal) while sharing a common domain model and environment conventions.
